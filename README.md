@@ -1,5 +1,12 @@
 # Mac MCP
 
+## Screenshots
+
+<p align="center">
+  <img src="assets/screenshots/mac-mcp-system-info.png" alt="Mac MCP checking CPU, RAM, battery, and disk from a Custom GPT" width="48%">
+  <img src="assets/screenshots/mac-mcp-git-commits.png" alt="Mac MCP listing latest Git commits from a local repository" width="48%">
+</p>
+
 Mac MCP is a local macOS MCP server for AI Agents, mainly for CustomGPT (ChatGPT). It exposes safe, structured HTTP endpoints and MCP tools for common desktop tasks: shell commands, files, processes, background jobs, macOS automation, browser control, screenshots, search, HTTP requests, and interactive user prompts.
 
 It is designed for four common setups:
