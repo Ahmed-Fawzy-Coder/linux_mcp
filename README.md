@@ -35,7 +35,7 @@ brew install brightness   # optional
 ## Installation
 
 ```bash
-git clone https://github.com/YOUR_GITHUB_USERNAME/mac-mcp.git
+git clone https://github.com/bulutarkan/mac-mcp.git
 cd mac-mcp
 python3 -m venv .venv
 source .venv/bin/activate
