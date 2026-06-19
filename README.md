@@ -1,11 +1,13 @@
 # Mac MCP
 
-Mac MCP is a local macOS control server for AI agents. It exposes safe, structured HTTP endpoints and MCP tools for common desktop tasks: shell commands, files, processes, background jobs, macOS automation, browser control, screenshots, search, HTTP requests, and interactive user prompts.
+Mac MCP is a local macOS MCP server for AI Agents, mainly for CustomGPT (ChatGPT). It exposes safe, structured HTTP endpoints and MCP tools for common desktop tasks: shell commands, files, processes, background jobs, macOS automation, browser control, screenshots, search, HTTP requests, and interactive user prompts.
 
-It is designed for two common setups:
+It is designed for four common setups:
 
 1. MCP clients that can connect to the `/mcp` endpoint.
 2. Custom GPT Actions that need an OpenAPI schema and a public HTTPS URL, usually through ngrok.
+3. Ability to handle all the things done just from your phone (app).
+4. Replacing the Codex, with nearly unlimited prompt limits (3000 Thinking 'prompt' limits, not request.)
 
 > Security note: this server can control your Mac. Do not expose it without authentication. Use a strong `MCP_API_KEY`, keep `MCP_ALLOW_NO_AUTH=false`, and only share your ngrok URL with clients you trust.
 
