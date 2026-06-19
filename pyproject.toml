@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mac-mcp"
+version = "1.0.0"
+description = "Local macOS control server for MCP clients and Custom GPT Actions"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Tarkan Bulut" }]
+dependencies = [
+  "fastapi==0.115.6",
+  "uvicorn[standard]==0.32.1",
+  "httpx==0.28.1",
+  "python-dotenv==1.0.1",
+  "mcp[cli]==1.27.2"
+]
+
+[project.scripts]
+mac-mcp = "mcp_server.cli:main"
+
+[tool.setuptools]
+packages = ["mcp_server"]
+include-package-data = true

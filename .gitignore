@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Runtime/private files
+.env
+audit.log
+mcp_server/jobs/
+jobs/
+*.log
+
+# macOS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/

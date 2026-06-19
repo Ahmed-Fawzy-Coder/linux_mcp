@@ -1,0 +1,895 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "Mac MCP Server",
+    "version": "1.0.0",
+    "description": "OpenAPI schema for connecting Mac MCP Server to Custom GPT Actions."
+  },
+  "servers": [
+    {
+      "url": "https://your-static-ngrok-domain.ngrok-free.dev",
+      "description": "Replace with your own static ngrok dev domain."
+    }
+  ],
+  "paths": {
+    "/api/run": {
+      "post": {
+        "operationId": "run_command",
+        "x-openai-isConsequential": false,
+        "summary": "Run a shell command on macOS using zsh",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "command"
+                ],
+                "properties": {
+                  "command": {
+                    "type": "string",
+                    "description": "Shell command to run."
+                  },
+                  "timeout_s": {
+                    "type": "integer",
+                    "description": "Optional timeout in seconds."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response."
+          }
+        }
+      }
+    },
+    "/api/system_info": {
+      "post": {
+        "operationId": "get_system_info",
+        "x-openai-isConsequential": false,
+        "summary": "Get macOS system information",
+        "responses": {
+          "200": {
+            "description": "Successful response."
+          }
+        }
+      }
+    },
+    "/api/process_list": {
+      "post": {
+        "operationId": "process_list",
+        "x-openai-isConsequential": false,
+        "summary": "List running processes",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "filter": {
+                    "type": "string",
+                    "description": "Optional name filter."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response."
+          }
+        }
+      }
+    },
+    "/api/kill_process": {
+      "post": {
+        "operationId": "kill_process",
+        "x-openai-isConsequential": false,
+        "summary": "Terminate a process by PID",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "pid"
+                ],
+                "properties": {
+                  "pid": {
+                    "type": "integer",
+                    "description": "Process ID."
+                  },
+                  "signal": {
+                    "type": "string",
+                    "description": "Signal to send, such as TERM, KILL, INT, or HUP."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response."
+          }
+        }
+      }
+    },
+    "/api/jobs/start": {
+      "post": {
+        "operationId": "start_background_job",
+        "x-openai-isConsequential": false,
+        "summary": "Start a long-running background job",
+        "description": "Use this for long-running tasks such as package installs, builds, tests, downloads, Docker commands, and development servers. Logs are stored in the jobs directory.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "command"
+                ],
+                "properties": {
+                  "command": {
+                    "type": "string",
+                    "description": "Shell command to run."
+                  },
+                  "cwd": {
+                    "type": "string",
+                    "description": "Working directory. Defaults to the configured home/work directory."
+                  },
+                  "env": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "Additional environment variables."
+                  },
+                  "timeout_s": {
+                    "type": "integer",
+                    "description": "Optional timeout in seconds."
+                  },
+                  "no_output_timeout_s": {
+                    "type": "integer",
+                    "description": "If no output is produced for this many seconds, the job is marked as stalled."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response."
+          }
+        }
+      }
+    },
+    "/api/jobs/status": {
+      "post": {
+        "operationId": "get_job_status",
+        "x-openai-isConsequential": false,
+        "summary": "Get background job status",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "job_id"
+                ],
+                "properties": {
+                  "job_id": {
+                    "type": "string",
+                    "description": "Background job ID."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response."
+          }
+        }
+      }
+    },
+    "/api/jobs/output": {
+      "post": {
+        "operationId": "get_job_output",
+        "x-openai-isConsequential": false,
+        "summary": "Get background job output",
+        "description": "Use tail_lines for recent logs, since_offset for incremental output, and stream as stdout, stderr, or both.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "job_id"
+                ],
+                "properties": {
+                  "job_id": {
+                    "type": "string",
+                    "description": "Background job ID."
+                  },
+                  "tail_lines": {
+                    "type": "integer",
+                    "description": "Return only the last N lines."
+                  },
+                  "since_offset": {
+                    "type": "integer",
+                    "description": "Return output after this byte offset."
+                  },
+                  "stream": {
+                    "type": "string",
+                    "description": "stdout, stderr, or both. Default: both."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response."
+          }
+        }
+      }
+    },
+    "/api/jobs/stop": {
+      "post": {
+        "operationId": "stop_job",
+        "x-openai-isConsequential": false,
+        "summary": "Stop a background job",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "job_id"
+                ],
+                "properties": {
+                  "job_id": {
+                    "type": "string",
+                    "description": "Background job ID."
+                  },
+                  "signal": {
+                    "type": "string",
+                    "description": "Signal to send, such as TERM, KILL, INT, or HUP."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response."
+          }
+        }
+      }
+    },
+    "/api/jobs/list": {
+      "post": {
+        "operationId": "list_jobs",
+        "x-openai-isConsequential": false,
+        "summary": "List background jobs",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "status_filter": {
+                    "type": "string",
+                    "description": "Filter by status: running, stalled, completed, failed, timeout, or killed."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response."
+          }
+        }
+      }
+    },
+    "/api/jobs/wait": {
+      "post": {
+        "operationId": "wait_jobs",
+        "x-openai-isConsequential": false,
+        "summary": "Wait for one or more jobs to finish",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "job_ids"
+                ],
+                "properties": {
+                  "job_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "List of background job IDs."
+                  },
+                  "timeout_s": {
+                    "type": "integer",
+                    "description": "Optional timeout in seconds."
+                  },
+                  "return_output": {
+                    "type": "boolean",
+                    "description": "If true, include stdout/stderr output."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response."
+          }
+        }
+      }
+    },
+    "/api/run_parallel": {
+      "post": {
+        "operationId": "run_commands_parallel",
+        "x-openai-isConsequential": false,
+        "summary": "Run multiple shell commands in parallel",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "commands"
+                ],
+                "properties": {
+                  "commands": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Shell commands to run in parallel."
+                  },
+                  "cwd": {
+                    "type": "string",
+                    "description": "Working directory. Defaults to the configured home/work directory."
+                  },
+                  "timeout_s": {
+                    "type": "integer",
+                    "description": "Optional timeout in seconds."
+                  },
+                  "return_output": {
+                    "type": "boolean",
+                    "description": "If true, include stdout/stderr output."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response."
+          }
+        }
+      }
+    },
+    "/api/files": {
+      "post": {
+        "operationId": "files_operation",
+        "x-openai-isConsequential": false,
+        "summary": "Perform file operations",
+        "description": "Choose the operation with the tool parameter: read_file, read_multiple_files, write_file, write_files_batch, edit_file, move_file, copy_file, delete_path, list_directory, directory_tree, create_directory, get_file_info, or find_files.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "tool"
+                ],
+                "properties": {
+                  "tool": {
+                    "type": "string",
+                    "description": "Operation to perform."
+                  },
+                  "path": {
+                    "type": "string",
+                    "description": "File or directory path."
+                  },
+                  "content": {
+                    "type": "string",
+                    "description": "Content to write or clipboard content, depending on the selected operation."
+                  },
+                  "paths": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Multiple file paths."
+                  },
+                  "files": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    },
+                    "description": "List of file objects with path and content fields."
+                  },
+                  "old_string": {
+                    "type": "string",
+                    "description": "Text to search for."
+                  },
+                  "new_string": {
+                    "type": "string",
+                    "description": "Replacement text."
+                  },
+                  "expected_replacements": {
+                    "type": "integer",
+                    "description": "Expected number of replacements. Default: 1."
+                  },
+                  "source": {
+                    "type": "string",
+                    "description": "Source path."
+                  },
+                  "destination": {
+                    "type": "string",
+                    "description": "Destination path."
+                  },
+                  "recursive": {
+                    "type": "boolean",
+                    "description": "Set true for recursive directory deletion."
+                  },
+                  "pattern": {
+                    "type": "string",
+                    "description": "Glob, text, or regex pattern depending on the selected operation."
+                  },
+                  "file_type": {
+                    "type": "string",
+                    "description": "file, dir, or any."
+                  },
+                  "depth": {
+                    "type": "integer",
+                    "description": "Directory tree depth. Default: 3."
+                  },
+                  "offset": {
+                    "type": "integer",
+                    "description": "Starting line offset."
+                  },
+                  "length": {
+                    "type": "integer",
+                    "description": "Number of lines to read."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response."
+          }
+        }
+      }
+    },
+    "/api/macos": {
+      "post": {
+        "operationId": "macos_operation",
+        "x-openai-isConsequential": false,
+        "summary": "Control macOS system features",
+        "description": "Choose the operation with the tool parameter: run_applescript, send_notification, clipboard_get, clipboard_set, open_app, open_url, set_volume, get_volume, set_brightness, screenshot, set_reminder, or get_running_apps.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "tool"
+                ],
+                "properties": {
+                  "tool": {
+                    "type": "string",
+                    "description": "Operation to perform."
+                  },
+                  "script": {
+                    "type": "string",
+                    "description": "AppleScript code to run."
+                  },
+                  "title": {
+                    "type": "string",
+                    "description": "Notification or reminder title."
+                  },
+                  "message": {
+                    "type": "string",
+                    "description": "Notification message."
+                  },
+                  "sound": {
+                    "type": "string",
+                    "description": "Notification sound. Default: Pop."
+                  },
+                  "content": {
+                    "type": "string",
+                    "description": "Content to write or clipboard content, depending on the selected operation."
+                  },
+                  "app_name": {
+                    "type": "string",
+                    "description": "Application name to open, such as Safari or Finder."
+                  },
+                  "url": {
+                    "type": "string",
+                    "description": "Target URL."
+                  },
+                  "level": {
+                    "type": "integer",
+                    "description": "Level from 0 to 100."
+                  },
+                  "path": {
+                    "type": "string",
+                    "description": "File or directory path."
+                  },
+                  "window": {
+                    "type": "boolean",
+                    "description": "Whether to select a window for screenshot."
+                  },
+                  "notes": {
+                    "type": "string",
+                    "description": "Reminder notes."
+                  },
+                  "due_date": {
+                    "type": "string",
+                    "description": "Reminder due date, for example MM/DD/YYYY HH:MM AM/PM."
+                  },
+                  "timeout_s": {
+                    "type": "integer",
+                    "description": "Optional timeout in seconds."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response."
+          }
+        }
+      }
+    },
+    "/api/browser": {
+      "post": {
+        "operationId": "browser_operation",
+        "x-openai-isConsequential": false,
+        "summary": "Control Safari or Google Chrome",
+        "description": "Choose the operation with the tool parameter. Browser operations include browser_open_url, browser_list_tabs, browser_activate_tab, browser_close_tab, browser_execute_js, browser_click_selector, browser_type_selector, browser_wait_for_selector, browser_get_html, browser_wait_for_download, browser_screenshot, browser_scroll, browser_press_key, browser_coordinate_click, and browser_get_snapshot.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "tool"
+                ],
+                "properties": {
+                  "tool": {
+                    "type": "string",
+                    "description": "Operation to perform."
+                  },
+                  "browser": {
+                    "type": "string",
+                    "description": "Safari or Google Chrome."
+                  },
+                  "url": {
+                    "type": "string",
+                    "description": "Target URL."
+                  },
+                  "new_tab": {
+                    "type": "boolean",
+                    "description": "Open in a new tab. Default: true."
+                  },
+                  "window_index": {
+                    "type": "integer",
+                    "description": "Browser window index. Default: 1."
+                  },
+                  "tab_index": {
+                    "type": "integer",
+                    "description": "Browser tab index."
+                  },
+                  "js": {
+                    "type": "string",
+                    "description": "JavaScript code to execute."
+                  },
+                  "css_selector": {
+                    "type": "string",
+                    "description": "CSS selector."
+                  },
+                  "text": {
+                    "type": "string",
+                    "description": "Text to type."
+                  },
+                  "clear": {
+                    "type": "boolean",
+                    "description": "Clear before typing. Default: true."
+                  },
+                  "timeout_s": {
+                    "type": "integer",
+                    "description": "Optional timeout in seconds."
+                  },
+                  "max_chars": {
+                    "type": "integer",
+                    "description": "Maximum number of characters to return."
+                  },
+                  "filename_contains": {
+                    "type": "string",
+                    "description": "Download filename filter."
+                  },
+                  "path": {
+                    "type": "string",
+                    "description": "File or directory path."
+                  },
+                  "return_base64": {
+                    "type": "boolean",
+                    "description": "Return screenshot as base64. Default: true."
+                  },
+                  "dx": {
+                    "type": "integer",
+                    "description": "Horizontal scroll amount in pixels."
+                  },
+                  "dy": {
+                    "type": "integer",
+                    "description": "Vertical scroll amount in pixels. Positive is down; negative is up."
+                  },
+                  "selector": {
+                    "type": "string",
+                    "description": "CSS selector of the element to scroll."
+                  },
+                  "key": {
+                    "type": "string",
+                    "description": "Key to press, such as return, escape, tab, space, or delete."
+                  },
+                  "modifiers": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Modifier keys, such as cmd or shift."
+                  },
+                  "x": {
+                    "type": "integer",
+                    "description": "X coordinate in pixels."
+                  },
+                  "y": {
+                    "type": "integer",
+                    "description": "Y coordinate in pixels."
+                  },
+                  "double_click": {
+                    "type": "boolean",
+                    "description": "Whether to double-click. Default: false."
+                  },
+                  "max_depth": {
+                    "type": "integer",
+                    "description": "DOM tree depth. Default: 6."
+                  },
+                  "max_children": {
+                    "type": "integer",
+                    "description": "Maximum children per DOM node. Default: 25."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response."
+          }
+        }
+      }
+    },
+    "/api/search": {
+      "post": {
+        "operationId": "search_operation",
+        "x-openai-isConsequential": false,
+        "summary": "Search files or Spotlight",
+        "description": "Choose the operation with the tool parameter: search_files for recursive content search, or spotlight_search for fast filename search.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "tool"
+                ],
+                "properties": {
+                  "tool": {
+                    "type": "string",
+                    "description": "Operation to perform."
+                  },
+                  "pattern": {
+                    "type": "string",
+                    "description": "Glob, text, or regex pattern depending on the selected operation."
+                  },
+                  "query": {
+                    "type": "string",
+                    "description": "Search query."
+                  },
+                  "path": {
+                    "type": "string",
+                    "description": "File or directory path."
+                  },
+                  "include_extensions": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Optional extension filter, such as py or js."
+                  },
+                  "case_sensitive": {
+                    "type": "boolean",
+                    "description": "Case-sensitive search. Default: false."
+                  },
+                  "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of results. Default: 50."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response."
+          }
+        }
+      }
+    },
+    "/api/http": {
+      "post": {
+        "operationId": "http_request",
+        "x-openai-isConsequential": false,
+        "summary": "Send an HTTP request from the Mac",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "url"
+                ],
+                "properties": {
+                  "url": {
+                    "type": "string",
+                    "description": "Target URL."
+                  },
+                  "method": {
+                    "type": "string",
+                    "description": "HTTP method. Default: GET."
+                  },
+                  "headers": {
+                    "type": "object",
+                    "description": "HTTP headers."
+                  },
+                  "body": {
+                    "type": "string",
+                    "description": "Request body."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response."
+          }
+        }
+      }
+    },
+    "/api/interactive": {
+      "post": {
+        "operationId": "ask_user",
+        "x-openai-isConsequential": false,
+        "summary": "Ask the local user an interactive question",
+        "description": "Use this during autonomous tasks to ask the local Mac user a question in a native dialog and wait for a response or timeout.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "question"
+                ],
+                "properties": {
+                  "question": {
+                    "type": "string",
+                    "description": "Question or message shown to the user."
+                  },
+                  "sender": {
+                    "type": "string",
+                    "description": "Sender name shown in the dialog title. Default: AI."
+                  },
+                  "timeout_s": {
+                    "type": "integer",
+                    "description": "Optional timeout in seconds."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "description": "Whether the operation succeeded."
+                    },
+                    "response": {
+                      "type": "string",
+                      "description": "Text entered by the user, or null when skipped/timed out."
+                    },
+                    "skipped": {
+                      "type": "boolean",
+                      "description": "True if the user skipped the dialog."
+                    },
+                    "timed_out": {
+                      "type": "boolean",
+                      "description": "True if the dialog timed out."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "MCP_API_KEY"
+      }
+    }
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ]
+}
