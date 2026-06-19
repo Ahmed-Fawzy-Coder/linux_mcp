@@ -52,6 +52,9 @@ MCP_API_KEY=replace-with-a-long-random-token
 MCP_ALLOW_NO_AUTH=false
 MCP_ALLOW_SHELL=true
 RATE_LIMIT_PER_MINUTE=120
+
+# Paste your static ngrok domain here. Use only the domain, not https://
+NGROK_DOMAIN=your-domain.ngrok-free.dev
 ```
 
 Generate a token with:
@@ -68,9 +71,10 @@ PY
 After `pip install -e .`, the `mac-mcp` command is available inside the virtual environment:
 
 ```bash
-mac-mcp start
+mac-mcp start          # local server only
+mac-mcp start --ngrok  # local server + ngrok tunnel
 mac-mcp status
-mac-mcp restart
+mac-mcp restart --ngrok
 mac-mcp stop
 ```
 
@@ -78,9 +82,12 @@ Useful options:
 
 ```bash
 mac-mcp start --host 127.0.0.1 --port 8000
+mac-mcp start --ngrok --ngrok-domain your-domain.ngrok-free.dev
 mac-mcp start --reload
 mac-mcp stop --force
 ```
+
+`mac-mcp start` starts only the local server on `127.0.0.1:8000`. `mac-mcp start --ngrok` starts the local server and a managed ngrok tunnel in the background.
 
 Logs are written to:
 
@@ -144,22 +151,30 @@ You will get a domain like:
 your-domain.ngrok-free.dev
 ```
 
-4. Start Mac MCP locally:
+4. Paste the static domain into `mcp_server/.env`:
 
-```bash
-mac-mcp start --host 127.0.0.1 --port 8000
+```env
+NGROK_DOMAIN=your-domain.ngrok-free.dev
 ```
 
-5. Start the tunnel using your static domain:
+Use only the domain. Do not include `https://` in `NGROK_DOMAIN`.
+
+5. Start Mac MCP and ngrok together:
 
 ```bash
-ngrok http --domain=your-domain.ngrok-free.dev 8000
+mac-mcp start --ngrok
 ```
 
-Your Custom GPT Actions server URL will be:
+This starts the local server at `http://127.0.0.1:8000` and the public ngrok tunnel at:
 
 ```text
 https://your-domain.ngrok-free.dev
+```
+
+You can also override the domain from the command line:
+
+```bash
+mac-mcp start --ngrok --ngrok-domain your-domain.ngrok-free.dev
 ```
 
 ## Custom GPT Actions setup
@@ -284,11 +299,10 @@ Use the same bearer token if authentication is enabled.
 - Prefer `127.0.0.1` for the local bind address.
 - Do not commit `.env`, logs, job outputs, screenshots, or personal files.
 - Review every tool you expose to AI clients. Shell, file, browser, and AppleScript tools are powerful.
-- Stop the tunnel when you are not using it:
+- Stop the server and the managed ngrok tunnel when you are not using them:
 
 ```bash
 mac-mcp stop
-pkill ngrok
 ```
 
 ## Repository structure

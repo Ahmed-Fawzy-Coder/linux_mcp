@@ -3,17 +3,28 @@ from __future__ import annotations
 import argparse
 import os
 import signal
+import shutil
 import subprocess
 import sys
 import time
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 APP_MODULE = "mcp_server.main:app"
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = "8000"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+ENV_FILE = PROJECT_ROOT / "mcp_server" / ".env"
 STATE_DIR = Path.home() / ".mac-mcp"
 PID_FILE = STATE_DIR / "mac-mcp.pid"
+NGROK_PID_FILE = STATE_DIR / "ngrok.pid"
 LOG_FILE = STATE_DIR / "mac-mcp.log"
+NGROK_LOG_FILE = STATE_DIR / "ngrok.log"
+
+
+def _load_env() -> None:
+    load_dotenv(ENV_FILE)
 
 
 def _pid_alive(pid: int) -> bool:
@@ -26,23 +37,53 @@ def _pid_alive(pid: int) -> bool:
         return True
 
 
-def _read_pid() -> int | None:
+def _read_pid(path: Path) -> int | None:
     try:
-        return int(PID_FILE.read_text().strip())
+        return int(path.read_text().strip())
     except Exception:
         return None
 
 
-def _remove_stale_pid() -> None:
-    pid = _read_pid()
+def _remove_stale_pid(path: Path) -> None:
+    pid = _read_pid(path)
     if pid is None or not _pid_alive(pid):
-        PID_FILE.unlink(missing_ok=True)
+        path.unlink(missing_ok=True)
 
 
-def start(args: argparse.Namespace) -> int:
+def _stop_pid(path: Path, name: str, timeout: float, force: bool) -> bool:
+    pid = _read_pid(path)
+    if not pid or not _pid_alive(pid):
+        path.unlink(missing_ok=True)
+        print(f"{name} is not running.")
+        return True
+
+    os.kill(pid, signal.SIGTERM)
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if not _pid_alive(pid):
+            path.unlink(missing_ok=True)
+            print(f"{name} stopped.")
+            return True
+        time.sleep(0.2)
+
+    if force:
+        os.kill(pid, signal.SIGKILL)
+        path.unlink(missing_ok=True)
+        print(f"{name} force-stopped.")
+        return True
+
+    print(f"{name} did not stop within {timeout}s. Run: mac-mcp stop --force")
+    return False
+
+
+def _local_url(host: str, port: int) -> str:
+    return f"http://{host}:{port}"
+
+
+def _start_server(args: argparse.Namespace) -> int:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
-    _remove_stale_pid()
-    pid = _read_pid()
+    _remove_stale_pid(PID_FILE)
+    pid = _read_pid(PID_FILE)
     if pid and _pid_alive(pid):
         print(f"mac-mcp is already running (pid {pid}).")
         return 0
@@ -70,6 +111,7 @@ def start(args: argparse.Namespace) -> int:
         stderr=subprocess.STDOUT,
         stdin=subprocess.DEVNULL,
         env=env,
+        cwd=str(PROJECT_ROOT),
         start_new_session=True,
     )
     PID_FILE.write_text(str(proc.pid))
@@ -78,52 +120,110 @@ def start(args: argparse.Namespace) -> int:
         print(f"mac-mcp failed to start. See log: {LOG_FILE}")
         PID_FILE.unlink(missing_ok=True)
         return proc.returncode or 1
-    print(f"mac-mcp started on http://{args.host}:{args.port} (pid {proc.pid}).")
-    print(f"Log: {LOG_FILE}")
+
+    print(f"mac-mcp started on {_local_url(args.host, args.port)} (pid {proc.pid}).")
+    print(f"mac-mcp log: {LOG_FILE}")
+    return 0
+
+
+def _start_ngrok(args: argparse.Namespace) -> int:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    _remove_stale_pid(NGROK_PID_FILE)
+    pid = _read_pid(NGROK_PID_FILE)
+    if pid and _pid_alive(pid):
+        print(f"ngrok is already running for mac-mcp (pid {pid}).")
+        return 0
+
+    domain = (args.ngrok_domain or os.getenv("NGROK_DOMAIN", "")).strip()
+    if domain.startswith("https://") or domain.startswith("http://"):
+        print("NGROK_DOMAIN should contain only the domain, for example: your-domain.ngrok-free.dev")
+        return 2
+    if not domain:
+        print("NGROK_DOMAIN is not set. Add it to mcp_server/.env or pass --ngrok-domain your-domain.ngrok-free.dev")
+        return 2
+
+    ngrok_bin = args.ngrok_bin or os.getenv("NGROK_BIN", "ngrok")
+    ngrok_path = shutil.which(ngrok_bin)
+    if ngrok_path is None:
+        print("ngrok was not found. Install it with Homebrew or set NGROK_BIN in mcp_server/.env")
+        return 2
+
+    public_url = f"https://{domain}"
+    target = str(args.port)
+    cmd = [ngrok_path, "http", f"--domain={domain}", target]
+    log = NGROK_LOG_FILE.open("a", encoding="utf-8")
+    proc = subprocess.Popen(
+        cmd,
+        stdout=log,
+        stderr=subprocess.STDOUT,
+        stdin=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    NGROK_PID_FILE.write_text(str(proc.pid))
+    time.sleep(0.8)
+    if proc.poll() is not None:
+        print(f"ngrok failed to start. See log: {NGROK_LOG_FILE}")
+        NGROK_PID_FILE.unlink(missing_ok=True)
+        return proc.returncode or 1
+
+    print(f"ngrok tunnel started: {public_url} -> {_local_url(args.host, args.port)} (pid {proc.pid}).")
+    print(f"ngrok log: {NGROK_LOG_FILE}")
+    return 0
+
+
+def start(args: argparse.Namespace) -> int:
+    _load_env()
+    server_code = _start_server(args)
+    if server_code != 0:
+        return server_code
+    if args.ngrok:
+        return _start_ngrok(args)
+    print("ngrok was not started. Use: mac-mcp start --ngrok")
     return 0
 
 
 def stop(args: argparse.Namespace) -> int:
-    pid = _read_pid()
-    if not pid or not _pid_alive(pid):
-        PID_FILE.unlink(missing_ok=True)
-        print("mac-mcp is not running.")
-        return 0
-    os.kill(pid, signal.SIGTERM)
-    deadline = time.time() + args.timeout
-    while time.time() < deadline:
-        if not _pid_alive(pid):
-            PID_FILE.unlink(missing_ok=True)
-            print("mac-mcp stopped.")
-            return 0
-        time.sleep(0.2)
-    if args.force:
-        os.kill(pid, signal.SIGKILL)
-        PID_FILE.unlink(missing_ok=True)
-        print("mac-mcp force-stopped.")
-        return 0
-    print(f"mac-mcp did not stop within {args.timeout}s. Run: mac-mcp stop --force")
-    return 1
+    _load_env()
+    server_ok = _stop_pid(PID_FILE, "mac-mcp", args.timeout, args.force)
+    ngrok_ok = _stop_pid(NGROK_PID_FILE, "ngrok", args.timeout, args.force)
+    return 0 if server_ok and ngrok_ok else 1
 
 
 def status(args: argparse.Namespace) -> int:
-    pid = _read_pid()
-    if pid and _pid_alive(pid):
-        print(f"mac-mcp is running (pid {pid}).")
-        print(f"Log: {LOG_FILE}")
-        return 0
-    PID_FILE.unlink(missing_ok=True)
-    print("mac-mcp is not running.")
-    return 1
+    _load_env()
+    server_pid = _read_pid(PID_FILE)
+    ngrok_pid = _read_pid(NGROK_PID_FILE)
+    server_running = bool(server_pid and _pid_alive(server_pid))
+    ngrok_running = bool(ngrok_pid and _pid_alive(ngrok_pid))
+
+    if server_running:
+        print(f"mac-mcp is running (pid {server_pid}).")
+        print(f"mac-mcp log: {LOG_FILE}")
+    else:
+        PID_FILE.unlink(missing_ok=True)
+        print("mac-mcp is not running.")
+
+    if ngrok_running:
+        domain = os.getenv("NGROK_DOMAIN", "").strip()
+        suffix = f" at https://{domain}" if domain else ""
+        print(f"ngrok is running (pid {ngrok_pid}){suffix}.")
+        print(f"ngrok log: {NGROK_LOG_FILE}")
+    else:
+        NGROK_PID_FILE.unlink(missing_ok=True)
+        print("ngrok is not running for mac-mcp.")
+
+    return 0 if server_running else 1
 
 
 def restart(args: argparse.Namespace) -> int:
+    _load_env()
     stop_args = argparse.Namespace(timeout=args.timeout, force=True)
     stop(stop_args)
     return start(args)
 
 
 def main(argv: list[str] | None = None) -> int:
+    _load_env()
     parser = argparse.ArgumentParser(description="Manage the Mac MCP local server.")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -131,22 +231,25 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--host", default=os.getenv("MAC_MCP_HOST", DEFAULT_HOST))
         p.add_argument("--port", default=int(os.getenv("MAC_MCP_PORT", DEFAULT_PORT)), type=int)
         p.add_argument("--reload", action="store_true", help="Enable uvicorn reload mode for development.")
+        p.add_argument("--ngrok", action="store_true", help="Also start an ngrok tunnel using NGROK_DOMAIN from mcp_server/.env.")
+        p.add_argument("--ngrok-domain", default=None, help="Override NGROK_DOMAIN for this run.")
+        p.add_argument("--ngrok-bin", default=None, help="Path or command name for the ngrok binary. Defaults to ngrok.")
 
-    p_start = sub.add_parser("start", help="Start the local server.")
+    p_start = sub.add_parser("start", help="Start the local server, optionally with ngrok.")
     add_start_flags(p_start)
     p_start.set_defaults(func=start)
 
-    p_stop = sub.add_parser("stop", help="Stop the local server.")
+    p_stop = sub.add_parser("stop", help="Stop the local server and the managed ngrok tunnel.")
     p_stop.add_argument("--timeout", type=float, default=5)
     p_stop.add_argument("--force", action="store_true")
     p_stop.set_defaults(func=stop)
 
-    p_restart = sub.add_parser("restart", help="Restart the local server.")
+    p_restart = sub.add_parser("restart", help="Restart the local server, optionally with ngrok.")
     add_start_flags(p_restart)
     p_restart.add_argument("--timeout", type=float, default=5)
     p_restart.set_defaults(func=restart)
 
-    p_status = sub.add_parser("status", help="Show server status.")
+    p_status = sub.add_parser("status", help="Show server and ngrok status.")
     p_status.set_defaults(func=status)
 
     args = parser.parse_args(argv)
