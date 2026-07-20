@@ -137,6 +137,31 @@ Important details:
 
 Restart Codex Desktop completely after changing `config.toml`.
 
+### Enforce Linux MCP globally in Codex
+
+`AGENTS.md` is model guidance, not a technical block. Current Codex Desktop routes
+tool orchestration through a tool named `exec`, so an older hook that matches only
+`Bash` does not see native `tools.exec_command` calls.
+
+Install this fork's global guard:
+
+```bash
+python3 scripts/install-codex-hook.py
+```
+
+Then restart Codex and approve the new global `PreToolUse` hook once. The guard:
+
+- blocks native `exec_command`, shell, read, grep, and glob operations;
+- directs the agent to `mcp__linux_mcp__workspace`;
+- still allows `apply_patch`, browser tools, and Linux MCP recovery commands;
+- blocks Linux MCP paths outside the active project when both paths are under a
+  `Coding` workspace;
+- blocks Docker targets prefixed with the name of another project, such as using
+  `haweyat-postgres-1` from a `GapHunter` task.
+
+The installer backs up the previous `~/.codex/hooks.json` before replacing the
+obsolete `graphify hook-check` entry. Project-specific hooks remain unchanged.
+
 ## Tell Codex to use it for every project
 
 Add the contents of [`examples/AGENTS.md`](examples/AGENTS.md) to your global `~/.codex/AGENTS.md`. The key rules are:
