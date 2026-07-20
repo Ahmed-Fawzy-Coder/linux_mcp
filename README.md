@@ -25,7 +25,7 @@ Linux MCP runs on your machine and exposes one compact MCP gateway, `workspace`.
 | Action | Purpose |
 | --- | --- |
 | `search_files` | Search project text with a strict result limit |
-| `read_file` | Read a bounded line range |
+| `read_file` | Read a bounded line range (`offset` is zero-based) |
 | `read_multiple_files` | Read bounded ranges from up to eight files |
 | `edit_file` | Exact find-and-replace with replacement-count validation |
 | `write_file` | Write one file |
