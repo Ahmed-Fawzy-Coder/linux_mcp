@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import secrets
+from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 from fastapi import HTTPException, status
@@ -150,6 +151,59 @@ def _retrieval(settings: Settings, arguments: Dict[str, Any]) -> WorkspaceResult
     )
 
 
+def _normalize_read_file_alias(arguments: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize the common {path: project_root, file: relative_path} alias."""
+    if "file" not in arguments:
+        return arguments
+
+    project_path = arguments.get("path")
+    relative_file = arguments.get("file")
+    if not isinstance(project_path, str) or not project_path:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Invalid read_file alias: path must be an absolute project directory.",
+        )
+    if not isinstance(relative_file, str) or not relative_file:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Invalid read_file alias: file must be a non-empty relative file path.",
+        )
+
+    project_root = Path(project_path).expanduser()
+    file_path = Path(relative_file)
+    if not project_root.is_absolute():
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Invalid read_file alias: path must be an absolute project directory.",
+        )
+    if file_path.is_absolute():
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Invalid read_file alias: file must be relative; pass an absolute full file path "
+            "as path without the file field instead.",
+        )
+    if ".." in file_path.parts:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Invalid read_file alias: file must not contain '..' or escape the project path.",
+        )
+
+    resolved_root = project_root.resolve()
+    resolved_file = (resolved_root / file_path).resolve()
+    try:
+        resolved_file.relative_to(resolved_root)
+    except ValueError as exc:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Invalid read_file alias: file must not escape the project path.",
+        ) from exc
+
+    normalized = dict(arguments)
+    normalized["path"] = str(resolved_file)
+    normalized.pop("file")
+    return normalized
+
+
 def workspace(settings: Settings, action: str,
               arguments: Optional[Dict[str, Any]] = None) -> str:
     """Dispatch a bounded workspace operation and return one compact JSON payload."""
@@ -174,13 +228,8 @@ def workspace(settings: Settings, action: str,
     }
     operation = (action or "").strip()
     supplied_arguments = dict(arguments or {})
-    if operation == "read_file" and "file" in supplied_arguments:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            "Invalid arguments for read_file: path must be the absolute full file path, "
-            "including the filename (for example, /project/package.json); do not split "
-            "it into path plus a file field.",
-        )
+    if operation == "read_file":
+        supplied_arguments = _normalize_read_file_alias(supplied_arguments)
     if operation == "run_command" and "max_output_lines" in supplied_arguments:
         # Codex agents commonly use this intuitive alias even though the compact
         # workspace schema calls the bound `tail_lines`. Accept it so a harmless

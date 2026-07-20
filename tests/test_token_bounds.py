@@ -178,18 +178,84 @@ class TokenBoundsTests(unittest.TestCase):
         self.assertIn("offset is zero-based", WORKSPACE_DESCRIPTION)
         self.assertIn("run_command uses cwd as the absolute project-root directory", WORKSPACE_DESCRIPTION)
 
-    def test_workspace_read_file_rejects_split_path_with_retry_guidance(self):
+    def test_workspace_read_file_accepts_project_path_and_relative_file_alias(self):
         with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "package.json"
+            target.write_text('{"name":"example"}\n', encoding="utf-8")
+
+            raw = workspace(
+                settings(root),
+                "read_file",
+                {"path": str(root), "file": "package.json"},
+            )
+            result = json.loads(raw)
+
+        self.assertEqual(result["path"], str(target.resolve()))
+        self.assertEqual(result["content"], '{"name":"example"}\n')
+
+    def test_workspace_read_file_alias_accepts_safe_nested_relative_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "config" / "app.json"
+            target.parent.mkdir()
+            target.write_text("nested\n", encoding="utf-8")
+
+            raw = workspace(
+                settings(root),
+                "read_file",
+                {"path": str(root), "file": "config/app.json", "offset": 0},
+            )
+            result = json.loads(raw)
+
+        self.assertEqual(result["path"], str(target.resolve()))
+        self.assertEqual(result["offset"], 0)
+        self.assertEqual(result["content"], "nested\n")
+
+    def test_workspace_read_file_alias_rejects_parent_traversal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "project"
+            root.mkdir()
             with self.assertRaises(HTTPException) as raised:
                 workspace(
-                    settings(Path(tmp)),
+                    settings(root),
                     "read_file",
-                    {"path": tmp, "file": "package.json"},
+                    {"path": str(root), "file": "../secret.txt"},
                 )
 
         self.assertEqual(raised.exception.status_code, 400)
-        self.assertIn("path must be the absolute full file path", raised.exception.detail)
-        self.assertIn("do not split it into path plus a file field", raised.exception.detail)
+        self.assertIn("must not contain '..'", raised.exception.detail)
+
+    def test_workspace_read_file_alias_rejects_absolute_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with self.assertRaises(HTTPException) as raised:
+                workspace(
+                    settings(root),
+                    "read_file",
+                    {"path": str(root), "file": str(root / "package.json")},
+                )
+
+        self.assertEqual(raised.exception.status_code, 400)
+        self.assertIn("file must be relative", raised.exception.detail)
+
+    def test_workspace_read_file_alias_rejects_symlink_escape(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            temp_root = Path(tmp)
+            root = temp_root / "project"
+            root.mkdir()
+            outside = temp_root / "secret.txt"
+            outside.write_text("secret\n", encoding="utf-8")
+            (root / "linked-secret.txt").symlink_to(outside)
+            with self.assertRaises(HTTPException) as raised:
+                workspace(
+                    settings(root),
+                    "read_file",
+                    {"path": str(root), "file": "linked-secret.txt"},
+                )
+
+        self.assertEqual(raised.exception.status_code, 400)
+        self.assertIn("must not escape the project path", raised.exception.detail)
 
     def test_live_metrics_ignore_legacy_unmeasured_events(self):
         with tempfile.TemporaryDirectory() as tmp:
