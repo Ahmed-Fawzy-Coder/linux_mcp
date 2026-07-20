@@ -31,8 +31,8 @@ def summarize_audit_metrics(range_value: str = "30d", now: Optional[datetime] = 
     current = now or datetime.now()
     selected_range = range_value if range_value in {"7d", "30d", "all"} else "30d"
     since = _since_for_range(selected_range, current)
-    calls = measured_calls = measured_segments = truncated_calls = 0
-    returned_chars = unbounded_chars = avoided_chars = 0
+    calls = measured_calls = measured_segments = bounded_calls = 0
+    returned_chars = internal_discarded_chars = 0
     started_at: Optional[datetime] = None
 
     if AUDIT_LOG.exists():
@@ -54,15 +54,12 @@ def summarize_audit_metrics(range_value: str = "30d", now: Optional[datetime] = 
                 measured_calls += 1
                 measured_segments += max(0, int(event.get("measured_segments", 0)))
                 returned_chars += max(0, int(event["payload_chars"]))
-                unbounded_chars += max(0, int(event.get("estimated_unbounded_chars", event["payload_chars"])))
-                avoided_chars += max(0, int(event.get("avoided_chars", 0)))
-                truncated_calls += int(event.get("truncated") is True)
+                internal_discarded_chars += max(0, int(event.get("internal_discarded_chars", 0)))
+                bounded_calls += int(event.get("truncated") is True)
                 if started_at is None or timestamp < started_at:
                     started_at = timestamp
 
     returned_tokens = _tokens(returned_chars)
-    unbounded_tokens = _tokens(unbounded_chars)
-    avoided_tokens = _tokens(avoided_chars)
     return {
         "version": 1,
         "range": selected_range,
@@ -71,13 +68,12 @@ def summarize_audit_metrics(range_value: str = "30d", now: Optional[datetime] = 
         "calls": calls,
         "measuredCalls": measured_calls,
         "measuredSegments": measured_segments,
-        "truncatedCalls": truncated_calls,
+        "boundedCalls": bounded_calls,
         "returnedChars": returned_chars,
-        "estimatedUnboundedChars": unbounded_chars,
-        "estimatedAvoidedChars": avoided_chars,
+        "internalDiscardedChars": internal_discarded_chars,
         "returnedTokensEstimate": returned_tokens,
-        "unboundedTokensEstimate": unbounded_tokens,
-        "avoidedTokensEstimate": avoided_tokens,
-        "savingsRatio": (avoided_chars / unbounded_chars) if unbounded_chars else 0,
-        "method": "measured pre-truncation characters; token counts estimated at 4 chars/token",
+        "method": (
+            "returned token estimate uses 4 chars/token; internal discarded characters "
+            "are local tool output and are not reported as tokens saved"
+        ),
     }

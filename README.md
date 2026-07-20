@@ -16,7 +16,7 @@ Linux MCP runs on your machine and exposes one compact MCP gateway, `workspace`.
 - Parallel command execution and background jobs with bounded log retrieval.
 - systemd user service plus socket activation on `127.0.0.1:8000`.
 - Boot-time startup with systemd user lingering.
-- Live local telemetry at `/metrics` for measured payload, estimated unbounded payload, and estimated avoided payload.
+- Honest live telemetry at `/metrics` for returned payload, estimated returned tokens, bounded calls, and internal output discarded locally.
 - Compatibility with the companion [OpenCodex fork](https://github.com/Ahmed-Fawzy-Coder/opencodex), which displays Linux MCP statistics on its Usage page.
 
 ## Supported `workspace` actions
@@ -182,18 +182,20 @@ Use linux_mcp to search this project for README, then read only the first 20 lin
 
 The tool call should be `mcp__linux_mcp__workspace` with `action: "search_files"` or `action: "read_file"`.
 
-## How savings telemetry works
+## How live telemetry works
 
 Linux MCP records only metadata, never file contents or command output, in `mcp_server/audit.log`.
 
-For operations where the pre-bound text is measurable, telemetry records:
+Telemetry records:
 
 - characters actually returned in the compact MCP payload;
-- characters available before the configured bounds;
-- characters avoided by bounding;
-- measured calls and calls that were truncated or had more data available.
+- an estimated returned-token count using `4 characters ≈ 1 token`;
+- measured calls and calls that were bounded or had more data available;
+- internal tool-output characters discarded locally before the response was returned.
 
-Token values are estimates using `4 characters ≈ 1 token`. Tokenizers differ by model and language, so these numbers are intentionally named estimates. Calls without measurable pre-bound text claim zero savings.
+Internal discarded output is not reported as tokens saved. It may include raw grep results, full command output, or file text used locally by the tool, and it is not a valid counterfactual for what a different tool would have sent to the model. Live telemetry therefore never reports `unbounded tokens`, `avoided tokens`, or a savings percentage.
+
+The companion OpenCodex fork displays a separate six-round controlled benchmark for the historical before/with-MCP comparison. That benchmark is static and must not be mixed with live telemetry.
 
 Endpoints:
 

@@ -149,8 +149,7 @@ class TokenBoundsTests(unittest.TestCase):
             self.assertEqual(result["returned_lines"], 20)
             self.assertTrue(result["has_more"])
             self.assertNotIn("_telemetry", raw)
-            self.assertGreater(raw.estimated_unbounded_chars, raw.payload_chars)
-            self.assertGreater(raw.avoided_chars, 0)
+            self.assertGreater(raw.internal_discarded_chars, 0)
 
     def test_live_metrics_ignore_legacy_unmeasured_events(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -158,7 +157,7 @@ class TokenBoundsTests(unittest.TestCase):
             audit.write_text(
                 "2026-07-20 03:00:00 | {\"tool\":\"workspace:read_file\",\"outcome\":\"ok\"}\n"
                 "2026-07-20 03:01:00 | {\"tool\":\"workspace:read_file\",\"payload_chars\":400,"
-                "\"estimated_unbounded_chars\":1200,\"avoided_chars\":800,"
+                "\"internal_discarded_chars\":1714246537,"
                 "\"measured_segments\":1,\"truncated\":true}\n",
                 encoding="utf-8",
             )
@@ -168,8 +167,12 @@ class TokenBoundsTests(unittest.TestCase):
             self.assertEqual(result["calls"], 2)
             self.assertEqual(result["measuredCalls"], 1)
             self.assertEqual(result["returnedTokensEstimate"], 100)
-            self.assertEqual(result["unboundedTokensEstimate"], 300)
-            self.assertEqual(result["avoidedTokensEstimate"], 200)
+            self.assertEqual(result["internalDiscardedChars"], 1_714_246_537)
+            self.assertEqual(result["boundedCalls"], 1)
+            self.assertNotIn("unboundedTokensEstimate", result)
+            self.assertNotIn("avoidedTokensEstimate", result)
+            self.assertNotIn("savingsRatio", result)
+            self.assertIn("not reported as tokens saved", result["method"])
 
     def test_workspace_rejects_unknown_action(self):
         with tempfile.TemporaryDirectory() as tmp:

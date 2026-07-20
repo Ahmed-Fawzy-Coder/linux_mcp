@@ -62,8 +62,7 @@ def _log(audit_logger, tool: str, fn):
         if result is not None and hasattr(result, "payload_chars"):
             event.update({
                 "payload_chars": result.payload_chars,
-                "estimated_unbounded_chars": result.estimated_unbounded_chars,
-                "avoided_chars": result.avoided_chars,
+                "internal_discarded_chars": result.internal_discarded_chars,
                 "measured_segments": result.measured_segments,
                 "truncated": result.truncated,
             })

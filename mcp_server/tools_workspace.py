@@ -23,8 +23,7 @@ class WorkspaceResult(str):
     """String result carrying server-side telemetry that is not sent to the model."""
 
     payload_chars: int
-    estimated_unbounded_chars: int
-    avoided_chars: int
+    internal_discarded_chars: int
     measured_segments: int
     truncated: bool
 
@@ -103,11 +102,10 @@ def workspace(settings: Settings, action: str,
     clean_result, telemetry = _strip_telemetry(result)
     payload = json.dumps(clean_result, ensure_ascii=False, separators=(",", ":"))
     returned_content = telemetry["returned_content_chars"]
-    avoided = max(0, telemetry["source_chars"] - returned_content)
+    discarded = max(0, telemetry["source_chars"] - returned_content)
     measured = WorkspaceResult(payload)
     measured.payload_chars = len(payload)
-    measured.estimated_unbounded_chars = len(payload) + avoided
-    measured.avoided_chars = avoided
+    measured.internal_discarded_chars = discarded
     measured.measured_segments = telemetry["measured_segments"]
     measured.truncated = telemetry["truncated"]
     return measured
