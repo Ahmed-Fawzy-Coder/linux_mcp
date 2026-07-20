@@ -127,7 +127,6 @@ def store_context_result(
     content: str,
     *,
     source_complete: bool,
-    etag: Optional[str] = None,
     now: Optional[float] = None,
 ) -> Dict[str, Any]:
     current = time.time() if now is None else float(now)
@@ -148,11 +147,9 @@ def store_context_result(
                 if not target.exists():
                     break
             digest = content_sha256(content)
-            validator = normalize_etag(etag) or digest
             record = canonical_json({
                 "content": content,
                 "created_at": current,
-                "etag": validator,
                 "expires_at": current + ttl_s,
                 "sha256": digest,
                 "snapshot_complete": True,
@@ -190,7 +187,7 @@ def store_context_result(
     return {
         "id": handle,
         "sha256": digest,
-        "etag": validator,
+        "etag": digest,
         "stored_chars": len(content),
         "stored_bytes": encoded_bytes,
         "expires_at": int((current + ttl_s) * 1000),
@@ -239,18 +236,17 @@ def get_context_result(
         raise
     except OSError as exc:
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Context result retrieval failed.") from exc
-    etag = normalize_etag(record.get("etag")) or digest
     validator = normalize_etag(if_none_match)
     base = {
         "ok": True,
         "context_id": context_id,
         "sha256": digest,
-        "etag": etag,
+        "etag": digest,
         "total_chars": len(content),
         "snapshot_complete": bool(record.get("snapshot_complete") is True),
         "source_complete": bool(record.get("source_complete") is True),
     }
-    if validator and secrets.compare_digest(validator, etag):
+    if validator and secrets.compare_digest(validator, digest):
         return {**base, "not_modified": True, "offset": start, "returned_chars": 0, "has_more": False}
     chunk = content[start:start + requested]
     return {

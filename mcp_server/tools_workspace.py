@@ -59,7 +59,6 @@ def _strip_telemetry(value: Any) -> tuple[Any, Dict[str, Any]]:
         "estimated_savable_chars": 0,
         "measured_segments": 0,
         "truncated": False,
-        "source_generations": [],
     }
 
     def visit(item: Any) -> Any:
@@ -76,9 +75,6 @@ def _strip_telemetry(value: Any) -> tuple[Any, Dict[str, Any]]:
                     min(source_chars, ESTIMATED_NATIVE_OUTPUT_CAP_CHARS) - returned_chars,
                 )
                 totals["measured_segments"] += 1
-                source_generation = metric.get("source_generation")
-                if isinstance(source_generation, str) and source_generation:
-                    totals["source_generations"].append(source_generation)
             for key, child in item.items():
                 if key == "_telemetry":
                     continue
@@ -213,22 +209,12 @@ def workspace(settings: Settings, action: str,
 
     snapshot = canonical_json(clean_result)
     digest = content_sha256(snapshot)
-    source_generations = sorted(set(telemetry["source_generations"]))
-    etag = digest
-    if source_generations:
-        # A bounded read's visible content may be unchanged even when another
-        # part of the source file was replaced. Include the full source
-        # generation so conditional reads never validate an older file.
-        etag = content_sha256(canonical_json({
-            "snapshot_sha256": digest,
-            "source_generations": source_generations,
-        }))
     source_complete = not telemetry["truncated"]
-    if context["if_none_match"] and secrets.compare_digest(context["if_none_match"], etag):
+    if context["if_none_match"] and secrets.compare_digest(context["if_none_match"], digest):
         response = {
             "ok": True,
             "not_modified": True,
-            "etag": etag,
+            "etag": digest,
             "snapshot_complete": True,
             "source_complete": source_complete,
         }
@@ -247,7 +233,7 @@ def workspace(settings: Settings, action: str,
     output = clean_result
     was_reduced = False
     if context["mode"] in {"auto", "store"}:
-        stored = store_context_result(settings, snapshot, source_complete=source_complete, etag=etag)
+        stored = store_context_result(settings, snapshot, source_complete=source_complete)
     if context["mode"] == "auto":
         target_chars = max(512, int(getattr(settings, "context_result_reduce_chars", 4_000)))
         candidate = reduce_context_result(
@@ -258,7 +244,7 @@ def workspace(settings: Settings, action: str,
             output = candidate
     reduced_body_chars = len(canonical_json(output)) if was_reduced else 0
     metadata: Dict[str, Any] = {
-        "etag": etag,
+        "etag": digest,
         "sha256": digest,
         "snapshot_chars": len(snapshot),
         "snapshot_complete": True,
