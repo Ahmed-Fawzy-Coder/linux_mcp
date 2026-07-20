@@ -300,6 +300,12 @@ The curl request should activate the service through `linux-mcp.socket`.
 
 The tests cover bounded reads, search limits, combined command-output limits, tail preservation, explicit working directories, job log bounds, compact gateway responses, and telemetry aggregation.
 
+Run the reproducible ten-round Ultimate Context benchmark:
+
+```bash
+.venv/bin/python scripts/benchmark-ultimate-context.py
+```
+
 ## Updating
 
 ```bash
