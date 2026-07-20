@@ -14,7 +14,7 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route, Mount
 
 from mcp.server.transport_security import TransportSecuritySettings
-from .security import RateLimiter, Settings, authenticate, client_ip, load_settings, rate_limit, setup_audit_logger
+from .security import BASE_DIR, RateLimiter, Settings, authenticate, client_ip, load_settings, rate_limit, setup_audit_logger
 from .tools_terminal import run_command, process_list, kill_process, get_system_info
 from .tools_jobs import (
     start_background_job, get_job_status, get_job_output,
@@ -577,8 +577,17 @@ def create_app():
         return JSONResponse(summarize_audit_metrics(request.query_params.get("range", "30d")))
 
     app.router.routes.append(Route("/health", health, methods=["GET"]))
-    app.router.routes.append(Route("/metrics", metrics, methods=["GET"]))
+  app.router.routes.append(Route("/metrics", metrics, methods=["GET"]))
 
+    async def reset_metrics(_: Request) -> Response:
+        audit_log = BASE_DIR / "audit.log"
+        if audit_log.exists():
+            from datetime import datetime
+            archive = BASE_DIR / f"audit-{datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
+            audit_log.rename(archive)
+        return JSONResponse({"ok": True, "message": "Audit log archived; fresh counting started."})
+
+    app.router.routes.append(Route("/metrics/reset", reset_metrics, methods=["POST"]))
     # REST API — FastAPI sub-app mounted at /api
     from fastapi import FastAPI
     from .rest_routes import router as rest_router
