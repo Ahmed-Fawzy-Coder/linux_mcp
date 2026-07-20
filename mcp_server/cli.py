@@ -145,7 +145,7 @@ def _start_ngrok(args: argparse.Namespace) -> int:
     ngrok_bin = args.ngrok_bin or os.getenv("NGROK_BIN", "ngrok")
     ngrok_path = shutil.which(ngrok_bin)
     if ngrok_path is None:
-        print("ngrok was not found. Install it with Homebrew or set NGROK_BIN in mcp_server/.env")
+        print("ngrok was not found. Install ngrok or set NGROK_BIN in mcp_server/.env")
         return 2
 
     public_url = f"https://{domain}"
@@ -224,7 +224,7 @@ def restart(args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     _load_env()
-    parser = argparse.ArgumentParser(description="Manage the Mac MCP local server.")
+    parser = argparse.ArgumentParser(description="Manage the Linux MCP local server.")
     sub = parser.add_subparsers(dest="command", required=True)
 
     def add_start_flags(p: argparse.ArgumentParser) -> None:

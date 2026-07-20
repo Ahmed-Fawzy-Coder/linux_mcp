@@ -1,326 +1,341 @@
-# Mac MCP
+# Linux MCP for Codex
 
-## Screenshots
+A Linux-first fork of [bulutarkan/mac-mcp](https://github.com/bulutarkan/mac-mcp) focused on token-efficient local coding workflows in Codex.
 
-<p align="center">
-  <img src="assets/screenshots/mac-mcp-system-info.png" alt="Mac MCP checking CPU, RAM, battery, and disk from a Custom GPT" width="48%">
-  <img src="assets/screenshots/mac-mcp-git-commits.png" alt="Mac MCP listing latest Git commits from a local repository" width="48%">
-</p>
+Linux MCP runs on your machine and exposes one compact MCP gateway, `workspace`. The model searches first, reads bounded sections, edits locally, runs tests, and retrieves short log tails instead of loading whole projects or unbounded command output into the conversation.
 
-Mac MCP is a local macOS MCP server for AI Agents, mainly for CustomGPT (ChatGPT). It exposes safe, structured HTTP endpoints and MCP tools for common desktop tasks: shell commands, files, processes, background jobs, macOS automation, browser control, screenshots, search, HTTP requests, and interactive user prompts.
+> ملخص: هذه النسخة تشغّل MCP محليًا على Linux، تبدأ تلقائيًا مع الجهاز، وتعرض لـCodex أداة واحدة مضغوطة تقلل النص الذي يدخل إلى الـcontext. اتبع قسم Quick start ثم أضف إعداد Codex وأعد تشغيل التطبيق.
 
-It is designed for four common setups:
+## What this fork adds
 
-1. MCP clients that can connect to the `/mcp` endpoint.
-2. Custom GPT Actions that need an OpenAPI schema and a public HTTPS URL, usually through ngrok.
-3. Ability to handle all the things done just from your phone (app).
-4. Replacing the Codex, with nearly unlimited prompt limits (3000 Thinking 'prompt' limits, not request.)
+- Linux implementations for shell, files, processes, desktop helpers, search, screenshots, clipboard, browser/CDP, and background jobs.
+- A single token-efficient `workspace` tool instead of loading every legacy tool schema.
+- Bounded file reads: 160 lines by default, 500 maximum, and a 12,000-character response budget.
+- Bounded searches: 50 results by default and 200 maximum.
+- Bounded command and job output: latest 100 lines and 12,000 characters by default.
+- Parallel command execution and background jobs with bounded log retrieval.
+- systemd user service plus socket activation on `127.0.0.1:8000`.
+- Boot-time startup with systemd user lingering.
+- Live local telemetry at `/metrics` for measured payload, estimated unbounded payload, and estimated avoided payload.
+- Compatibility with the companion [OpenCodex fork](https://github.com/Ahmed-Fawzy-Coder/opencodex), which displays Linux MCP statistics on its Usage page.
 
-> Security note: this server can control your Mac. Do not expose it without authentication. Use a strong `MCP_API_KEY`, keep `MCP_ALLOW_NO_AUTH=false`, and only share your ngrok URL with clients you trust.
+## Supported `workspace` actions
 
-## Features
-
-- Run zsh commands and inspect running processes.
-- Start, monitor, read, and stop long-running background jobs.
-- Read, write, move, copy, delete, search, and inspect files.
-- Run AppleScript, open apps/URLs, use clipboard, notifications, reminders, screenshots, volume, and brightness.
-- Control Safari or Google Chrome tabs, selectors, JavaScript, screenshots, scrolling, keys, coordinate clicks, and DOM snapshots.
-- Ask the local user a question with a native macOS dialog during autonomous workflows.
-- Use the same backend through MCP or REST endpoints for Custom GPT Actions.
+| Action | Purpose |
+| --- | --- |
+| `search_files` | Search project text with a strict result limit |
+| `read_file` | Read a bounded line range |
+| `read_multiple_files` | Read bounded ranges from up to eight files |
+| `edit_file` | Exact find-and-replace with replacement-count validation |
+| `write_file` | Write one file |
+| `write_files_batch` | Write multiple files |
+| `run_command` | Run a command and return bounded recent output |
+| `run_commands_parallel` | Run independent commands concurrently |
+| `start_background_job` | Start a long-running build, test, or server |
+| `get_job_status` | Check job state |
+| `get_job_output` | Read a bounded recent log section |
+| `wait_jobs` | Wait for one or more jobs |
+| `stop_job` | Stop a background job |
 
 ## Requirements
 
-- macOS
-- Python 3.10+
-- Git
-- ngrok account, if you want a public HTTPS URL for Custom GPT Actions
-- Optional: `brightness` CLI for brightness control
+- A Linux distribution with Python 3.10 or newer.
+- `python3-venv`, `git`, and `curl`.
+- systemd for automatic startup. Manual startup also works without systemd.
+- Codex Desktop or another MCP client that supports Streamable HTTP.
+
+On Ubuntu or Debian:
 
 ```bash
-brew install python git ngrok
-brew install brightness   # optional
+sudo apt update
+sudo apt install -y python3 python3-venv git curl
 ```
 
-## Installation
+Optional desktop integrations:
 
 ```bash
-git clone https://github.com/bulutarkan/mac-mcp.git
-cd mac-mcp
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e .
-cp mcp_server/.env.example mcp_server/.env
+sudo apt install -y ripgrep libnotify-bin wl-clipboard xclip brightnessctl
+```
+
+## Quick start
+
+Clone your fork:
+
+```bash
+git clone https://github.com/Ahmed-Fawzy-Coder/linux_mcp.git
+cd linux_mcp
+```
+
+Install the Python environment and the systemd user units:
+
+```bash
+chmod +x scripts/install-systemd-user.sh scripts/uninstall-systemd-user.sh
+./scripts/install-systemd-user.sh
+```
+
+The installer:
+
+1. Creates `.venv`.
+2. Installs the project in editable mode.
+3. Creates `mcp_server/.env` from the safe example if it is missing.
+4. Installs and enables `linux-mcp.socket` and `linux-mcp.service`.
+5. Enables user lingering when allowed, so the service can start at boot before an interactive login.
+6. Verifies `http://127.0.0.1:8000/health`.
+
+## Configure the local secret
+
+Generate a token:
+
+```bash
+python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
 ```
 
 Edit `mcp_server/.env`:
 
 ```env
-MCP_API_KEY=replace-with-a-long-random-token
+MCP_API_KEY=replace-with-the-generated-value
 MCP_ALLOW_NO_AUTH=false
 MCP_ALLOW_SHELL=true
-RATE_LIMIT_PER_MINUTE=120
-
-# Paste your static ngrok domain here. Use only the domain, not https://
-NGROK_DOMAIN=your-domain.ngrok-free.dev
+RATE_LIMIT_PER_MINUTE=1000
+DEFAULT_COMMAND_TIMEOUT_S=120
+MAX_COMMAND_TIMEOUT_S=600
+MAX_OUTPUT_CHARS=12000
 ```
 
-Generate a token with:
+Restart the service after changing `.env`:
 
 ```bash
-python3 - <<'PY'
-import secrets
-print(secrets.token_urlsafe(48))
-PY
+systemctl --user restart linux-mcp.service
 ```
 
-## Start, stop, restart, and status
+Do not commit `mcp_server/.env`. It is ignored by Git.
 
-After `pip install -e .`, the `mac-mcp` command is available inside the virtual environment:
+## Configure Codex globally
+
+Open `~/.codex/config.toml` and add the following block. Replace the bearer value with the same `MCP_API_KEY` used in `mcp_server/.env`:
+
+```toml
+[mcp_servers.linux_mcp]
+enabled_tools = ["workspace"]
+url = "http://127.0.0.1:8000/mcp"
+http_headers = { "Authorization" = "Bearer replace-with-your-MCP_API_KEY" }
+enabled = true
+required = true
+startup_timeout_sec = 120
+tool_timeout_sec = 300
+default_tools_approval_mode = "approve"
+```
+
+The same block is available in [`examples/codex-config.toml`](examples/codex-config.toml).
+
+Important details:
+
+- Keep `enabled_tools = ["workspace"]`. Loading only the compact gateway avoids sending every legacy tool schema to the model.
+- `required = true` asks Codex to wait for the MCP server during initial startup.
+- `startup_timeout_sec = 120` gives socket activation and the first Python import enough time on slower machines.
+- The server only listens on localhost by default.
+
+Restart Codex Desktop completely after changing `config.toml`.
+
+## Tell Codex to use it for every project
+
+Add the contents of [`examples/AGENTS.md`](examples/AGENTS.md) to your global `~/.codex/AGENTS.md`. The key rules are:
+
+```markdown
+- Use `mcp__linux_mcp__workspace` first for local project search, reads, commands, tests, jobs, and logs.
+- Search first, then read only bounded ranges with explicit offset and length.
+- Pass the active project's absolute path, not the MCP server directory.
+- Keep command and log output to the latest 100 lines and at most 12,000 characters.
+- Retry once during startup before falling back to native tools.
+```
+
+These instructions matter because MCP availability alone does not force an agent to choose it.
+
+## Verify the installation
+
+Check both units:
 
 ```bash
-mac-mcp start          # local server only
-mac-mcp start --ngrok  # local server + ngrok tunnel
-mac-mcp status
-mac-mcp restart --ngrok
-mac-mcp stop
+systemctl --user is-enabled linux-mcp.socket linux-mcp.service
+systemctl --user is-active linux-mcp.socket linux-mcp.service
+loginctl show-user "$USER" -p Linger
 ```
 
-Useful options:
+Check the server:
 
 ```bash
-mac-mcp start --host 127.0.0.1 --port 8000
-mac-mcp start --ngrok --ngrok-domain your-domain.ngrok-free.dev
-mac-mcp start --reload
-mac-mcp stop --force
+curl http://127.0.0.1:8000/health
+curl 'http://127.0.0.1:8000/metrics?range=30d'
 ```
 
-`mac-mcp start` starts only the local server on `127.0.0.1:8000`. `mac-mcp start --ngrok` starts the local server and a managed ngrok tunnel in the background.
+Expected health response:
 
-Logs are written to:
+```json
+{"ok":true,"server":"linux-mcp","workdir":"/home/you"}
+```
+
+In a new Codex task, ask:
 
 ```text
-~/.mac-mcp/mac-mcp.log
+Use linux_mcp to search this project for README, then read only the first 20 lines.
 ```
 
-You can also run the server directly:
+The tool call should be `mcp__linux_mcp__workspace` with `action: "search_files"` or `action: "read_file"`.
 
-```bash
-uvicorn mcp_server.main:app --host 127.0.0.1 --port 8000
-```
+## How savings telemetry works
 
-## Local endpoints
+Linux MCP records only metadata, never file contents or command output, in `mcp_server/audit.log`.
 
-The server exposes:
+For operations where the pre-bound text is measurable, telemetry records:
+
+- characters actually returned in the compact MCP payload;
+- characters available before the configured bounds;
+- characters avoided by bounding;
+- measured calls and calls that were truncated or had more data available.
+
+Token values are estimates using `4 characters ≈ 1 token`. Tokenizers differ by model and language, so these numbers are intentionally named estimates. Calls without measurable pre-bound text claim zero savings.
+
+Endpoints:
 
 ```text
-MCP:  http://127.0.0.1:8000/mcp
-REST: http://127.0.0.1:8000/api/*
+GET /metrics?range=7d
+GET /metrics?range=30d
+GET /metrics?range=all
 ```
 
-Example REST request:
+To reset only Linux MCP telemetry:
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/system_info \
-  -H "Authorization: Bearer $MCP_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{}'
+systemctl --user stop linux-mcp.service
+rm -- mcp_server/audit.log
+systemctl --user start linux-mcp.service
 ```
 
-Example command request:
+## Manual startup without systemd
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/run \
-  -H "Authorization: Bearer $MCP_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"command":"pwd && sw_vers","timeout_s":10}'
+python3 -m venv .venv
+.venv/bin/pip install -e .
+cp mcp_server/.env.example mcp_server/.env
+.venv/bin/linux-mcp start --host 127.0.0.1 --port 8000
 ```
 
-## Getting a static ngrok dev domain
-
-Custom GPT Actions require a public HTTPS URL. For local development, ngrok is the easiest option.
-
-1. Sign in or create an ngrok account.
-2. Install and authenticate ngrok:
+Compatibility alias:
 
 ```bash
-ngrok config add-authtoken YOUR_NGROK_AUTHTOKEN
+.venv/bin/mac-mcp status
 ```
 
-3. Create a static domain in the ngrok dashboard:
+The `mac-mcp` name is retained only for compatibility with the upstream project.
 
-```text
-Cloud Edge / Domains -> New Domain
+## Commands and logs
+
+```bash
+systemctl --user status linux-mcp.service
+journalctl --user -u linux-mcp.service -n 100 --no-pager
+systemctl --user restart linux-mcp.service
+systemctl --user stop linux-mcp.service
+systemctl --user start linux-mcp.service
 ```
 
-You will get a domain like:
+Socket activation test:
 
-```text
-your-domain.ngrok-free.dev
+```bash
+systemctl --user stop linux-mcp.service
+curl http://127.0.0.1:8000/health
+systemctl --user is-active linux-mcp.service
 ```
 
-4. Paste the static domain into `mcp_server/.env`:
+The curl request should activate the service through `linux-mcp.socket`.
+
+## Security
+
+- Keep the listener on `127.0.0.1` unless you have a specific protected-network design.
+- Use a strong `MCP_API_KEY` and keep `MCP_ALLOW_NO_AUTH=false`.
+- `run_command` can execute local shell commands. Set `MCP_ALLOW_SHELL=false` if your use case does not need it.
+- Never expose the server directly to the public internet.
+- HTTP and browser tools have separate allowlists in `.env`.
+- Audit telemetry contains tool names, durations, and sizes only; it does not store returned content.
+
+## Tests
+
+```bash
+.venv/bin/python -m unittest -q tests.test_token_bounds
+```
+
+The tests cover bounded reads, search limits, combined command-output limits, tail preservation, explicit working directories, job log bounds, compact gateway responses, and telemetry aggregation.
+
+## Updating
+
+```bash
+git pull --ff-only
+.venv/bin/pip install -e .
+systemctl --user restart linux-mcp.service
+```
+
+## Uninstalling the service
+
+```bash
+./scripts/uninstall-systemd-user.sh
+```
+
+This removes only the systemd user units. The repository, `.env`, audit log, and virtual environment remain untouched.
+
+To remove the Codex integration, also delete `[mcp_servers.linux_mcp]` from `~/.codex/config.toml` and remove the Linux MCP section from `~/.codex/AGENTS.md`, then restart Codex.
+
+## Troubleshooting
+
+### Port 8000 is already in use
+
+```bash
+ss -ltnp | grep ':8000'
+systemctl --user status linux-mcp.socket linux-mcp.service
+```
+
+Stop the conflicting process or change both the socket port and the URL in Codex.
+
+### MCP does not appear in a new Codex task
+
+1. Confirm the service and socket are active.
+2. Confirm the token in Codex matches `MCP_API_KEY`.
+3. Confirm `enabled_tools = ["workspace"]`.
+4. Fully restart Codex Desktop.
+5. Allow the configured startup grace period once; do not immediately switch to native tools.
+
+### Unauthorized
+
+The bearer token in `~/.codex/config.toml` does not match `MCP_API_KEY`, or the server was not restarted after changing `.env`.
+
+### The service starts manually but not after reboot
+
+```bash
+loginctl enable-linger "$USER"
+systemctl --user enable linux-mcp.socket linux-mcp.service
+```
+
+### Large output still reaches the model
+
+Check that Codex is calling only `workspace`, not legacy tools, and confirm:
 
 ```env
-NGROK_DOMAIN=your-domain.ngrok-free.dev
+MAX_OUTPUT_CHARS=12000
 ```
 
-Use only the domain. Do not include `https://` in `NGROK_DOMAIN`.
-
-5. Start Mac MCP and ngrok together:
-
-```bash
-mac-mcp start --ngrok
-```
-
-This starts the local server at `http://127.0.0.1:8000` and the public ngrok tunnel at:
+## Project layout
 
 ```text
-https://your-domain.ngrok-free.dev
+mcp_server/main.py             MCP server and compact gateway registration
+mcp_server/tools_workspace.py  Workspace action dispatcher
+mcp_server/tools_files.py      Bounded file reads and edits
+mcp_server/tools_search.py     Bounded content search
+mcp_server/tools_terminal.py   Bounded shell execution
+mcp_server/tools_jobs.py       Background jobs and bounded logs
+mcp_server/telemetry.py        Local payload telemetry aggregation
+scripts/                       systemd user installation helpers
+examples/                      Codex global configuration examples
+tests/                         token-bound and telemetry tests
 ```
 
-You can also override the domain from the command line:
+## Credits
 
-```bash
-mac-mcp start --ngrok --ngrok-domain your-domain.ngrok-free.dev
-```
-
-## Custom GPT Actions setup
-
-Use the included OpenAPI file:
-
-```text
-openapi/custom-gpt-actions.json
-```
-
-Before importing it into the GPT builder, replace the placeholder server URL:
-
-```json
-"servers": [
-  {
-    "url": "https://your-static-ngrok-domain.ngrok-free.dev"
-  }
-]
-```
-
-with your own ngrok domain:
-
-```json
-"servers": [
-  {
-    "url": "https://your-domain.ngrok-free.dev"
-  }
-]
-```
-
-In the GPT builder:
-
-1. Open your GPT.
-2. Go to Configure -> Actions.
-3. Create a new action.
-4. Import `openapi/custom-gpt-actions.json`.
-5. Set Authentication to API Key or Bearer token, depending on the UI.
-6. Use this header format:
-
-```text
-Authorization: Bearer YOUR_MCP_API_KEY
-```
-
-The REST endpoints are all under `/api`, and the operation IDs are stable. For example:
-
-```text
-POST /api/run                 -> run_command
-POST /api/system_info         -> get_system_info
-POST /api/files               -> files_operation
-POST /api/macos               -> macos_operation
-POST /api/browser             -> browser_operation
-POST /api/search              -> search_operation
-POST /api/interactive         -> ask_user
-```
-
-## OpenAPI format
-
-A Custom GPT Action schema needs three main pieces:
-
-```json
-{
-  "openapi": "3.1.1",
-  "info": {
-    "title": "Mac MCP Server",
-    "version": "1.0.0"
-  },
-  "servers": [
-    {
-      "url": "https://your-domain.ngrok-free.dev"
-    }
-  ],
-  "paths": {
-    "/api/system_info": {
-      "post": {
-        "operationId": "get_system_info",
-        "summary": "Get macOS system information",
-        "responses": {
-          "200": {
-            "description": "Successful response."
-          }
-        }
-      }
-    }
-  }
-}
-```
-
-For grouped endpoints such as `/api/files`, `/api/macos`, `/api/browser`, and `/api/search`, the `tool` field selects the internal operation. Example:
-
-```json
-{
-  "tool": "read_file",
-  "path": "~/Desktop/example.txt"
-}
-```
-
-Browser example:
-
-```json
-{
-  "tool": "browser_open_url",
-  "browser": "Google Chrome",
-  "url": "https://example.com",
-  "new_tab": true
-}
-```
-
-## MCP endpoint
-
-Clients that support MCP over streamable HTTP can connect to:
-
-```text
-https://your-domain.ngrok-free.dev/mcp
-```
-
-Use the same bearer token if authentication is enabled.
-
-## Security recommendations
-
-- Keep `MCP_ALLOW_NO_AUTH=false` when using ngrok.
-- Use a long random `MCP_API_KEY`.
-- Prefer `127.0.0.1` for the local bind address.
-- Do not commit `.env`, logs, job outputs, screenshots, or personal files.
-- Review every tool you expose to AI clients. Shell, file, browser, and AppleScript tools are powerful.
-- Stop the server and the managed ngrok tunnel when you are not using them:
-
-```bash
-mac-mcp stop
-```
-
-## Repository structure
-
-```text
-mcp_server/                  Python server and tool implementations
-openapi/custom-gpt-actions.json
-pyproject.toml               Package metadata and mac-mcp CLI entry point
-README.md
-```
-
-## License
-
-MIT
+Based on [bulutarkan/mac-mcp](https://github.com/bulutarkan/mac-mcp). The original MIT license is preserved.

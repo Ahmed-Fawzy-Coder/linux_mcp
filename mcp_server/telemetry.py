@@ -1,0 +1,83 @@
+from __future__ import annotations
+
+import json
+import math
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any, Dict, Optional
+
+from .security import BASE_DIR
+
+
+AUDIT_LOG = BASE_DIR / "audit.log"
+TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+
+def _since_for_range(value: str, now: datetime) -> Optional[datetime]:
+    if value == "7d":
+        return now - timedelta(days=7)
+    if value == "all":
+        return None
+    return now - timedelta(days=30)
+
+
+def _tokens(chars: int) -> int:
+    # Model tokenizers differ. Four characters per token is deliberately
+    # exposed as an estimate rather than reported as provider token usage.
+    return math.ceil(max(0, chars) / 4)
+
+
+def summarize_audit_metrics(range_value: str = "30d", now: Optional[datetime] = None) -> Dict[str, Any]:
+    current = now or datetime.now()
+    selected_range = range_value if range_value in {"7d", "30d", "all"} else "30d"
+    since = _since_for_range(selected_range, current)
+    calls = measured_calls = measured_segments = truncated_calls = 0
+    returned_chars = unbounded_chars = avoided_chars = 0
+    started_at: Optional[datetime] = None
+
+    if AUDIT_LOG.exists():
+        with AUDIT_LOG.open("r", encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                try:
+                    stamp, raw = line.rstrip("\n").split(" | ", 1)
+                    timestamp = datetime.strptime(stamp, TIMESTAMP_FORMAT)
+                    event = json.loads(raw)
+                except (ValueError, json.JSONDecodeError):
+                    continue
+                if since is not None and timestamp < since:
+                    continue
+                if not str(event.get("tool", "")).startswith("workspace:"):
+                    continue
+                calls += 1
+                if not isinstance(event.get("payload_chars"), int):
+                    continue
+                measured_calls += 1
+                measured_segments += max(0, int(event.get("measured_segments", 0)))
+                returned_chars += max(0, int(event["payload_chars"]))
+                unbounded_chars += max(0, int(event.get("estimated_unbounded_chars", event["payload_chars"])))
+                avoided_chars += max(0, int(event.get("avoided_chars", 0)))
+                truncated_calls += int(event.get("truncated") is True)
+                if started_at is None or timestamp < started_at:
+                    started_at = timestamp
+
+    returned_tokens = _tokens(returned_chars)
+    unbounded_tokens = _tokens(unbounded_chars)
+    avoided_tokens = _tokens(avoided_chars)
+    return {
+        "version": 1,
+        "range": selected_range,
+        "generatedAt": int(current.timestamp() * 1000),
+        "startedAt": int(started_at.timestamp() * 1000) if started_at else None,
+        "calls": calls,
+        "measuredCalls": measured_calls,
+        "measuredSegments": measured_segments,
+        "truncatedCalls": truncated_calls,
+        "returnedChars": returned_chars,
+        "estimatedUnboundedChars": unbounded_chars,
+        "estimatedAvoidedChars": avoided_chars,
+        "returnedTokensEstimate": returned_tokens,
+        "unboundedTokensEstimate": unbounded_tokens,
+        "avoidedTokensEstimate": avoided_tokens,
+        "savingsRatio": (avoided_chars / unbounded_chars) if unbounded_chars else 0,
+        "method": "measured pre-truncation characters; token counts estimated at 4 chars/token",
+    }

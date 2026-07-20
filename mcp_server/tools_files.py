@@ -9,7 +9,10 @@ from fastapi import HTTPException, status
 
 from .security import Settings, resolve_path, truncate
 
-MAX_READ_CHARS = 200_000
+MAX_READ_CHARS = 12_000
+DEFAULT_READ_LINES = 160
+MAX_READ_LINES = 500
+MAX_MULTI_FILES = 8
 
 
 # ── Write ────────────────────────────────────────────────────────────────────
@@ -38,30 +41,49 @@ def write_files_batch(settings: Settings, files: List[Dict[str, str]], atomic: b
 
 # ── Read ─────────────────────────────────────────────────────────────────────
 
-def read_file(settings: Settings, path: str, offset: int = 0, length: Optional[int] = None) -> Dict[str, Any]:
+def read_file(settings: Settings, path: str, offset: int = 0,
+              length: Optional[int] = DEFAULT_READ_LINES) -> Dict[str, Any]:
     target = resolve_path(path)
     if not target.exists() or not target.is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"File not found: {path}")
     content = target.read_text(encoding="utf-8", errors="replace")
-    if offset or length is not None:
-        lines = content.splitlines(keepends=True)
-        sliced = lines[offset: offset + length if length else None]
-        content = "".join(sliced)
-    bounded, truncated = truncate(content, MAX_READ_CHARS)
-    return {"ok": True, "path": str(target), "content": bounded, "truncated": truncated}
+    lines = content.splitlines(keepends=True)
+    start = max(0, int(offset or 0))
+    requested = DEFAULT_READ_LINES if length is None else max(1, min(int(length), MAX_READ_LINES))
+    end = min(len(lines), start + requested)
+    bounded, truncated = truncate("".join(lines[start:end]), min(MAX_READ_CHARS, settings.max_output_chars))
+    return {
+        "ok": True,
+        "path": str(target),
+        "content": bounded,
+        "offset": start,
+        "returned_lines": max(0, end - start),
+        "total_lines": len(lines),
+        "has_more": end < len(lines),
+        "truncated": truncated,
+        "_telemetry": {
+            "source_chars": len(content),
+            "returned_content_chars": len(bounded),
+        },
+    }
 
 
-def read_multiple_files(settings: Settings, paths: List[str]) -> Dict[str, Any]:
+def read_multiple_files(settings: Settings, paths: List[str], offset: int = 0,
+                        length: Optional[int] = 120) -> Dict[str, Any]:
+    if not paths:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "paths list is empty.")
+    if len(paths) > MAX_MULTI_FILES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            f"At most {MAX_MULTI_FILES} files can be read in one call.")
+    per_file_limit = max(512, settings.max_output_chars // len(paths))
     results = []
     for path in paths:
         try:
-            target = resolve_path(path)
-            if target.exists() and target.is_file():
-                content = target.read_text(encoding="utf-8", errors="replace")
-                bounded, _ = truncate(content, 50_000)
-                results.append({"path": path, "content": bounded, "status": "ok"})
-            else:
-                results.append({"path": path, "error": "Not found", "status": "error"})
+            result = read_file(settings, path, offset=offset, length=length)
+            result["content"], additionally_truncated = truncate(result["content"], per_file_limit)
+            result["truncated"] = bool(result["truncated"] or additionally_truncated)
+            result["status"] = "ok"
+            results.append(result)
         except Exception as e:
             results.append({"path": path, "error": str(e), "status": "error"})
     return {"ok": True, "files": results}

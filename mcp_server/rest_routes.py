@@ -337,7 +337,7 @@ def api_macos(req: MacOSRequest, settings: Settings = Depends(get_settings)) -> 
     elif t == "get_running_apps":
         return get_running_apps(settings)
     else:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown macOS tool: {t}")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown desktop tool: {t}")
 
 
 @router.post("/browser")
@@ -422,4 +422,3 @@ def api_interactive(req: InteractiveRequest, settings: Settings = Depends(get_se
         sender=req.sender or "AI",
         timeout_s=req.timeout_s or 60,
     )
-

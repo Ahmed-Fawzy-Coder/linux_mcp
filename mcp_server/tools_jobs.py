@@ -19,7 +19,7 @@ DEFAULT_JOB_ENV = {
     "CI": "1",
     "NO_COLOR": "1",
     "PIP_DISABLE_PIP_VERSION_CHECK": "1",
-    "HOMEBREW_NO_AUTO_UPDATE": "1",
+    "HOMEBREW_NO_AUTO_UPDATE": "1",  # harmless on Linux; kept for compatibility  # harmless on Linux; kept for compatibility  # harmless on Linux; kept for compatibility
 }
 
 _PROCS: Dict[str, subprocess.Popen[str]] = {}
@@ -64,7 +64,7 @@ def _base_env(extra_env: Optional[Dict[str, str]] = None) -> Dict[str, str]:
         "HOME": str(Path.home()),
         "USER": os.getenv("USER", Path.home().name),
         "LOGNAME": os.getenv("LOGNAME", os.getenv("USER", Path.home().name)),
-        "PATH": f"{os.environ.get('PATH', '')}:/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin",
+        "PATH": f"{os.environ.get('PATH', '')}:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/snap/bin",
         "LANG": "en_US.UTF-8",
         "LC_ALL": "en_US.UTF-8",
     })
@@ -175,6 +175,7 @@ def _normalize_status(job_id: str, meta: Dict[str, Any]) -> Dict[str, Any]:
 
 def _public_meta(job_id: str, meta: Dict[str, Any]) -> Dict[str, Any]:
     result = dict(meta)
+    result.pop("command", None)
     result["job_id"] = job_id
     result["duration_ms"] = int((float(meta.get("ended_at") or _now()) - float(meta.get("started_at", _now()))) * 1000)
     return result
@@ -201,7 +202,7 @@ def start_background_job(
     if not workdir.exists() or not workdir.is_dir():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"cwd does not exist or is not a directory: {workdir}")
 
-    argv = ["/bin/zsh", "-lc", command] if settings.allow_shell else command.split()
+    argv = [os.getenv("SHELL", "/bin/bash"), "-lc", command] if settings.allow_shell else command.split()
     started_at = _now()
     meta = {
         "job_id": job_id,
@@ -245,7 +246,7 @@ def start_background_job(
     threading.Thread(target=_append_stream, args=(job_id, proc.stderr, "stderr.log"), daemon=True).start()
     threading.Thread(target=_watch_process, args=(job_id, timeout_s, no_output_timeout_s), daemon=True).start()
 
-    return {"ok": True, "job_id": job_id, "pid": proc.pid, "status": "running", "command": command, "cwd": str(workdir)}
+    return {"ok": True, "job_id": job_id, "pid": proc.pid, "status": "running"}
 
 
 def get_job_status(settings: Settings, job_id: str) -> Dict[str, Any]:
@@ -272,7 +273,7 @@ def list_jobs(settings: Settings, status_filter: Optional[str] = None) -> Dict[s
 def get_job_output(
     settings: Settings,
     job_id: str,
-    tail_lines: Optional[int] = None,
+    tail_lines: Optional[int] = 100,
     since_offset: Optional[int] = None,
     stream: str = "both",
 ) -> Dict[str, Any]:
@@ -282,6 +283,7 @@ def get_job_output(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "stream must be stdout, stderr, or both.")
 
     result: Dict[str, Any] = {"ok": True, "job_id": job_id, "offsets": {}}
+    remaining = settings.max_output_chars
     for name in streams:
         path = _job_dir(job_id) / f"{name}.log"
         data = path.read_bytes() if path.exists() else b""
@@ -290,7 +292,19 @@ def get_job_output(
         text = chunk.decode("utf-8", errors="replace")
         if tail_lines is not None:
             text = "\n".join(text.splitlines()[-max(0, int(tail_lines)):])
-        text, truncated = truncate(text, settings.max_output_chars)
+        if remaining and len(text) > remaining:
+            marker = "... [earlier output truncated]\n"
+            available = max(0, remaining - len(marker))
+            text = text[-available:] if available else ""
+            first_newline = text.find("\n")
+            if first_newline >= 0:
+                text = text[first_newline + 1:]
+            text, truncated = marker + text, True
+        elif remaining:
+            truncated = False
+        else:
+            text, truncated = "", bool(text)
+        remaining = max(0, remaining - len(text))
         result[name] = text
         result[f"{name}_truncated"] = truncated
         result["offsets"][name] = len(data)
@@ -353,7 +367,7 @@ def run_commands_parallel(
     commands: List[str],
     cwd: Optional[str] = None,
     timeout_s: Optional[int] = None,
-    return_output: bool = True,
+    return_output: bool = False,
 ) -> Dict[str, Any]:
     if not commands:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "commands is required.")
@@ -362,5 +376,4 @@ def run_commands_parallel(
         for command in commands
     ]
     waited = wait_jobs(settings, [j["job_id"] for j in starts], timeout_s=timeout_s, return_output=return_output)
-    waited["started"] = starts
     return waited

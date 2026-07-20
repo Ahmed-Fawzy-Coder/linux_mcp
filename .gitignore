@@ -21,3 +21,6 @@ jobs/
 # Editors
 .vscode/
 .idea/
+
+# Local migration snapshots
+.linux-port-backup-*/

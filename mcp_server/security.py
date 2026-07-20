@@ -15,7 +15,9 @@ from dotenv import load_dotenv
 from fastapi import HTTPException, Request, status
 
 BASE_DIR = Path(__file__).resolve().parent
-HOME_DIR = Path(os.getenv("MAC_MCP_HOME", str(Path.home()))).expanduser().resolve()
+HOME_DIR = Path(
+    os.getenv("LINUX_MCP_HOME", os.getenv("MAC_MCP_HOME", str(Path.home())))
+).expanduser().resolve()
 
 
 def _bool(name: str, default: bool) -> bool:
@@ -80,7 +82,7 @@ def load_settings() -> Settings:
         rate_limit_per_minute=_int("RATE_LIMIT_PER_MINUTE", 1000),
         default_command_timeout_s=_int("DEFAULT_COMMAND_TIMEOUT_S", 120),
         max_command_timeout_s=_int("MAX_COMMAND_TIMEOUT_S", 600),
-        max_output_chars=_int("MAX_OUTPUT_CHARS", 100000),
+        max_output_chars=_int("MAX_OUTPUT_CHARS", 12000),
         workdir=workdir,
         http_allowlist=_strlist("HTTP_ALLOWLIST", ["*"]),
         http_https_only=_bool("HTTP_HTTPS_ONLY", False),

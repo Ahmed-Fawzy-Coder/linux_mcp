@@ -3,22 +3,27 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mac-mcp"
-version = "1.0.0"
-description = "Local macOS control server for MCP clients and Custom GPT Actions"
+name = "linux-mcp"
+version = "1.1.0"
+description = "Local Linux desktop control server for MCP clients and Custom GPT Actions"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "Tarkan Bulut" }]
+authors = [
+  { name = "Tarkan Bulut" },
+  { name = "Ahmed Fawzy" },
+]
 dependencies = [
   "fastapi==0.115.6",
   "uvicorn[standard]==0.32.1",
   "httpx==0.28.1",
   "python-dotenv==1.0.1",
-  "mcp[cli]==1.27.2"
+  "mcp[cli]==1.27.2",
+  "websocket-client==1.8.0"
 ]
 
 [project.scripts]
+linux-mcp = "mcp_server.cli:main"
 mac-mcp = "mcp_server.cli:main"
 
 [tool.setuptools]
