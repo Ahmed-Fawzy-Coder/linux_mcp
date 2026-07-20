@@ -174,6 +174,13 @@ def workspace(settings: Settings, action: str,
     }
     operation = (action or "").strip()
     supplied_arguments = dict(arguments or {})
+    if operation == "read_file" and "file" in supplied_arguments:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Invalid arguments for read_file: path must be the absolute full file path, "
+            "including the filename (for example, /project/package.json); do not split "
+            "it into path plus a file field.",
+        )
     if operation == "run_command" and "max_output_lines" in supplied_arguments:
         # Codex agents commonly use this intuitive alias even though the compact
         # workspace schema calls the bound `tail_lines`. Accept it so a harmless

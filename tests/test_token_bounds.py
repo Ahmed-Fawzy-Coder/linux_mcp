@@ -10,6 +10,7 @@ from unittest.mock import patch
 from fastapi import HTTPException
 
 from mcp_server import telemetry, tools_jobs
+from mcp_server.main import WORKSPACE_DESCRIPTION
 from mcp_server.tools_files import read_file, read_multiple_files
 from mcp_server.tools_search import search_files
 from mcp_server.tools_terminal import run_command
@@ -169,6 +170,26 @@ class TokenBoundsTests(unittest.TestCase):
 
             self.assertEqual(result["stdout"], "two\nthree")
             self.assertEqual(result["exit_code"], 0)
+
+    def test_workspace_description_distinguishes_path_contracts(self):
+        self.assertIn("search_files uses path as the absolute project-root directory", WORKSPACE_DESCRIPTION)
+        self.assertIn("read_file uses path as the absolute full file path", WORKSPACE_DESCRIPTION)
+        self.assertIn("never split it into path plus a file field", WORKSPACE_DESCRIPTION)
+        self.assertIn("offset is zero-based", WORKSPACE_DESCRIPTION)
+        self.assertIn("run_command uses cwd as the absolute project-root directory", WORKSPACE_DESCRIPTION)
+
+    def test_workspace_read_file_rejects_split_path_with_retry_guidance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(HTTPException) as raised:
+                workspace(
+                    settings(Path(tmp)),
+                    "read_file",
+                    {"path": tmp, "file": "package.json"},
+                )
+
+        self.assertEqual(raised.exception.status_code, 400)
+        self.assertIn("path must be the absolute full file path", raised.exception.detail)
+        self.assertIn("do not split it into path plus a file field", raised.exception.detail)
 
     def test_live_metrics_ignore_legacy_unmeasured_events(self):
         with tempfile.TemporaryDirectory() as tmp:

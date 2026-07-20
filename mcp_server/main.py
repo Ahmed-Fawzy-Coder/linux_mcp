@@ -43,6 +43,32 @@ from .tools_interactive import ask_user
 from .tools_workspace import workspace
 
 
+WORKSPACE_DESCRIPTION = (
+    "One compact gateway returning JSON text once. Pass action plus arguments. "
+    "Path contract: search_files uses path as the absolute project-root directory; "
+    "read_file uses path as the absolute full file path, including the filename "
+    "(never split it into path plus a file field), and offset is zero-based; "
+    "run_command uses cwd as the absolute project-root directory. "
+    "Examples: search_files {pattern:'TODO',path:'/project'}; "
+    "read_file {path:'/project/package.json',offset:0,length:160}; "
+    "run_command {command:'npm test',cwd:'/project'}. "
+    "Actions: search_files(pattern,path,include_extensions,max_results); "
+    "read_file(path,offset,length); read_multiple_files(paths,offset,length); "
+    "edit_file(path,old_string,new_string,expected_replacements); "
+    "write_file(path,content); write_files_batch(files,atomic); "
+    "run_command(command,cwd,timeout_s,tail_lines,max_output_chars); "
+    "run_commands_parallel(commands,cwd,timeout_s,return_output); "
+    "start_background_job(command,cwd,env,timeout_s,no_output_timeout_s); "
+    "get_job_status(job_id); get_job_output(job_id,tail_lines,since_offset,stream); "
+    "wait_jobs(job_ids,timeout_s,return_output); stop_job(job_id,signal); "
+    "get_context_result(context_id,offset,length,if_none_match). "
+    "Optional arguments._context accepts mode (off|auto|store|full), intent, and if_none_match. "
+    "auto stores the complete bounded action snapshot before deterministic reduction; "
+    "snapshot_complete and source_complete are reported separately. "
+    "Bounded defaults: read 160 lines, search 50 results, command/job output 100 lines and 12000 chars."
+)
+
+
 def _log(audit_logger, tool: str, fn):
     start = time.perf_counter()
     outcome = "ok"
@@ -116,23 +142,7 @@ def create_app():
     @mcp.tool(
         name="workspace",
         structured_output=False,
-        description=(
-            "One compact gateway returning JSON text once. Pass action plus arguments. "
-            "Actions: search_files(pattern,path,include_extensions,max_results); "
-            "read_file(path,offset,length); read_multiple_files(paths,offset,length); "
-            "edit_file(path,old_string,new_string,expected_replacements); "
-            "write_file(path,content); write_files_batch(files,atomic); "
-            "run_command(command,cwd,timeout_s,tail_lines,max_output_chars); "
-            "run_commands_parallel(commands,cwd,timeout_s,return_output); "
-            "start_background_job(command,cwd,env,timeout_s,no_output_timeout_s); "
-            "get_job_status(job_id); get_job_output(job_id,tail_lines,since_offset,stream); "
-            "wait_jobs(job_ids,timeout_s,return_output); stop_job(job_id,signal); "
-            "get_context_result(context_id,offset,length,if_none_match). "
-            "Optional arguments._context accepts mode (off|auto|store|full), intent, and if_none_match. "
-            "auto stores the complete bounded action snapshot before deterministic reduction; "
-            "snapshot_complete and source_complete are reported separately. "
-            "Bounded defaults: read 160 lines, search 50 results, command/job output 100 lines and 12000 chars."
-        ),
+        description=WORKSPACE_DESCRIPTION,
     )
     def _workspace(action: str, arguments: Optional[Dict[str, Any]] = None) -> str:
         return _log(audit_logger, f"workspace:{action}",
