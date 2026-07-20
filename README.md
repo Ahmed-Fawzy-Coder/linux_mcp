@@ -39,6 +39,12 @@ Linux MCP runs on your machine and exposes one compact MCP gateway, `workspace`.
 | `stop_job` | Stop a background job |
 | `get_context_result` | Retrieve a bounded section of an opaque stored context snapshot |
 
+Path arguments are action-specific: `search_files.path` is the absolute project-root directory,
+`read_file.path` is the absolute full file path including its filename, and `run_command.cwd` is the
+absolute project root. `read_file.offset` is zero-based. For compatibility with weaker models, the
+gateway safely normalizes the common `{ "path": "/project", "file": "package.json" }` alias; the
+`file` part must remain relative and cannot contain `..`, be absolute, or escape through a symlink.
+
 `run_command` uses `tail_lines` as its canonical line bound. The compact gateway also accepts the common `max_output_lines` alias and maps it to `tail_lines`, so a harmless naming variation does not create a failed tool round trip. If both are supplied, `tail_lines` wins.
 
 Pass `_context` inside an action's `arguments` to opt in. `mode: "auto"` atomically stores the complete bounded action response, then reduces only known large fields. `mode: "store"` stores without reducing, `mode: "full"` adds validation metadata without storing, and `mode: "off"` preserves the legacy payload. `intent` guides conservative prioritization and `if_none_match` accepts the prior SHA-256 ETag. `snapshot_complete` describes the stored bounded response; `source_complete: false` means the underlying action had already truncated its source and that omitted source was never recoverable from the snapshot.
