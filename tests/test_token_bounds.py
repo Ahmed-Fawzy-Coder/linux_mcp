@@ -153,6 +153,23 @@ class TokenBoundsTests(unittest.TestCase):
             self.assertGreater(raw.estimated_savable_chars, 0)
             self.assertLessEqual(raw.estimated_savable_chars, 40_000)
 
+    def test_workspace_accepts_max_output_lines_alias(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            raw = workspace(
+                settings(Path(tmp)),
+                "run_command",
+                {
+                    "command": "printf 'one\\ntwo\\nthree\\n'",
+                    "cwd": tmp,
+                    "max_output_lines": 2,
+                    "max_output_chars": 200,
+                },
+            )
+            result = json.loads(raw)
+
+            self.assertEqual(result["stdout"], "two\nthree")
+            self.assertEqual(result["exit_code"], 0)
+
     def test_live_metrics_ignore_legacy_unmeasured_events(self):
         with tempfile.TemporaryDirectory() as tmp:
             audit = Path(tmp) / "audit.log"
