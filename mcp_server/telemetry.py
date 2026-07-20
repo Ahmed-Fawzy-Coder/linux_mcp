@@ -32,7 +32,7 @@ def summarize_audit_metrics(range_value: str = "30d", now: Optional[datetime] = 
     selected_range = range_value if range_value in {"7d", "30d", "all"} else "30d"
     since = _since_for_range(selected_range, current)
     calls = measured_calls = measured_segments = bounded_calls = 0
-    returned_chars = internal_discarded_chars = 0
+    returned_chars = internal_discarded_chars = estimated_saved_chars = 0
     started_at: Optional[datetime] = None
 
     if AUDIT_LOG.exists():
@@ -55,11 +55,13 @@ def summarize_audit_metrics(range_value: str = "30d", now: Optional[datetime] = 
                 measured_segments += max(0, int(event.get("measured_segments", 0)))
                 returned_chars += max(0, int(event["payload_chars"]))
                 internal_discarded_chars += max(0, int(event.get("internal_discarded_chars", 0)))
+                estimated_saved_chars += max(0, int(event.get("estimated_savable_chars", 0)))
                 bounded_calls += int(event.get("truncated") is True)
                 if started_at is None or timestamp < started_at:
                     started_at = timestamp
 
     returned_tokens = _tokens(returned_chars)
+    estimated_baseline_chars = returned_chars + estimated_saved_chars
     return {
         "version": 1,
         "range": selected_range,
@@ -71,9 +73,16 @@ def summarize_audit_metrics(range_value: str = "30d", now: Optional[datetime] = 
         "boundedCalls": bounded_calls,
         "returnedChars": returned_chars,
         "internalDiscardedChars": internal_discarded_chars,
+        "estimatedBaselineChars": estimated_baseline_chars,
+        "estimatedSavedChars": estimated_saved_chars,
         "returnedTokensEstimate": returned_tokens,
+        "estimatedSavedTokens": _tokens(estimated_saved_chars),
+        "estimatedSavingsRatio": (
+            estimated_saved_chars / estimated_baseline_chars
+            if estimated_baseline_chars else 0
+        ),
         "method": (
-            "returned token estimate uses 4 chars/token; internal discarded characters "
-            "are local tool output and are not reported as tokens saved"
+            "live estimate; each measured operation caps the native-equivalent output at "
+            "40000 characters; token estimates use 4 chars/token"
         ),
     }

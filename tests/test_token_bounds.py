@@ -150,14 +150,17 @@ class TokenBoundsTests(unittest.TestCase):
             self.assertTrue(result["has_more"])
             self.assertNotIn("_telemetry", raw)
             self.assertGreater(raw.internal_discarded_chars, 0)
+            self.assertGreater(raw.estimated_savable_chars, 0)
+            self.assertLessEqual(raw.estimated_savable_chars, 40_000)
 
     def test_live_metrics_ignore_legacy_unmeasured_events(self):
         with tempfile.TemporaryDirectory() as tmp:
             audit = Path(tmp) / "audit.log"
             audit.write_text(
                 "2026-07-20 03:00:00 | {\"tool\":\"workspace:read_file\",\"outcome\":\"ok\"}\n"
-                "2026-07-20 03:01:00 | {\"tool\":\"workspace:read_file\",\"payload_chars\":400,"
+                "2026-07-20 03:01:00 | {\"tool\":\"workspace:read_file\",\"payload_chars\":12000,"
                 "\"internal_discarded_chars\":1714246537,"
+                "\"estimated_savable_chars\":28000,"
                 "\"measured_segments\":1,\"truncated\":true}\n",
                 encoding="utf-8",
             )
@@ -166,13 +169,14 @@ class TokenBoundsTests(unittest.TestCase):
 
             self.assertEqual(result["calls"], 2)
             self.assertEqual(result["measuredCalls"], 1)
-            self.assertEqual(result["returnedTokensEstimate"], 100)
+            self.assertEqual(result["returnedTokensEstimate"], 3_000)
             self.assertEqual(result["internalDiscardedChars"], 1_714_246_537)
+            self.assertEqual(result["estimatedBaselineChars"], 40_000)
+            self.assertEqual(result["estimatedSavedChars"], 28_000)
+            self.assertEqual(result["estimatedSavedTokens"], 7_000)
+            self.assertAlmostEqual(result["estimatedSavingsRatio"], 0.7)
             self.assertEqual(result["boundedCalls"], 1)
-            self.assertNotIn("unboundedTokensEstimate", result)
-            self.assertNotIn("avoidedTokensEstimate", result)
-            self.assertNotIn("savingsRatio", result)
-            self.assertIn("not reported as tokens saved", result["method"])
+            self.assertIn("caps the native-equivalent output", result["method"])
 
     def test_workspace_rejects_unknown_action(self):
         with tempfile.TemporaryDirectory() as tmp:

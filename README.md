@@ -16,7 +16,7 @@ Linux MCP runs on your machine and exposes one compact MCP gateway, `workspace`.
 - Parallel command execution and background jobs with bounded log retrieval.
 - systemd user service plus socket activation on `127.0.0.1:8000`.
 - Boot-time startup with systemd user lingering.
-- Honest live telemetry at `/metrics` for returned payload, estimated returned tokens, bounded calls, and internal output discarded locally.
+- Live estimated savings at `/metrics`, calculated from calls made since the last telemetry reset with a bounded per-operation baseline.
 - Compatibility with the companion [OpenCodex fork](https://github.com/Ahmed-Fawzy-Coder/opencodex), which displays Linux MCP statistics on its Usage page.
 
 ## Supported `workspace` actions
@@ -186,16 +186,14 @@ The tool call should be `mcp__linux_mcp__workspace` with `action: "search_files"
 
 Linux MCP records only metadata, never file contents or command output, in `mcp_server/audit.log`.
 
-Telemetry records:
+Telemetry records and estimates:
 
 - characters actually returned in the compact MCP payload;
-- an estimated returned-token count using `4 characters ≈ 1 token`;
-- measured calls and calls that were bounded or had more data available;
-- internal tool-output characters discarded locally before the response was returned.
+- a native-equivalent baseline capped at 40,000 characters per measured operation;
+- estimated characters and tokens saved relative to that capped baseline;
+- a live aggregate savings percentage and calls since reset.
 
-Internal discarded output is not reported as tokens saved. It may include raw grep results, full command output, or file text used locally by the tool, and it is not a valid counterfactual for what a different tool would have sent to the model. Live telemetry therefore never reports `unbounded tokens`, `avoided tokens`, or a savings percentage.
-
-The companion OpenCodex fork displays a separate six-round controlled benchmark for the historical before/with-MCP comparison. That benchmark is static and must not be mixed with live telemetry.
+The 40,000-character cap is close to a 10,000-token native tool-output budget at `4 characters ≈ 1 token`. It prevents raw local output such as a 1.7GB grep result from producing a near-100% estimate. The percentage is still explicitly an estimate, but it is dynamic, starts fresh after reset, and uses no historical benchmark data.
 
 Endpoints:
 

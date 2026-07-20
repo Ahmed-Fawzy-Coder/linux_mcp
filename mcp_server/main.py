@@ -63,6 +63,7 @@ def _log(audit_logger, tool: str, fn):
             event.update({
                 "payload_chars": result.payload_chars,
                 "internal_discarded_chars": result.internal_discarded_chars,
+                "estimated_savable_chars": result.estimated_savable_chars,
                 "measured_segments": result.measured_segments,
                 "truncated": result.truncated,
             })

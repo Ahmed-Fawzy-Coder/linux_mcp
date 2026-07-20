@@ -19,11 +19,15 @@ from .tools_search import search_files
 from .tools_terminal import run_command
 
 
+ESTIMATED_NATIVE_OUTPUT_CAP_CHARS = 40_000
+
+
 class WorkspaceResult(str):
     """String result carrying server-side telemetry that is not sent to the model."""
 
     payload_chars: int
     internal_discarded_chars: int
+    estimated_savable_chars: int
     measured_segments: int
     truncated: bool
 
@@ -32,6 +36,7 @@ def _strip_telemetry(value: Any) -> tuple[Any, Dict[str, Any]]:
     totals: Dict[str, Any] = {
         "source_chars": 0,
         "returned_content_chars": 0,
+        "estimated_savable_chars": 0,
         "measured_segments": 0,
         "truncated": False,
     }
@@ -41,8 +46,14 @@ def _strip_telemetry(value: Any) -> tuple[Any, Dict[str, Any]]:
             clean = {}
             metric = item.get("_telemetry")
             if isinstance(metric, dict):
-                totals["source_chars"] += max(0, int(metric.get("source_chars", 0)))
-                totals["returned_content_chars"] += max(0, int(metric.get("returned_content_chars", 0)))
+                source_chars = max(0, int(metric.get("source_chars", 0)))
+                returned_chars = max(0, int(metric.get("returned_content_chars", 0)))
+                totals["source_chars"] += source_chars
+                totals["returned_content_chars"] += returned_chars
+                totals["estimated_savable_chars"] += max(
+                    0,
+                    min(source_chars, ESTIMATED_NATIVE_OUTPUT_CAP_CHARS) - returned_chars,
+                )
                 totals["measured_segments"] += 1
             for key, child in item.items():
                 if key == "_telemetry":
@@ -106,6 +117,7 @@ def workspace(settings: Settings, action: str,
     measured = WorkspaceResult(payload)
     measured.payload_chars = len(payload)
     measured.internal_discarded_chars = discarded
+    measured.estimated_savable_chars = telemetry["estimated_savable_chars"]
     measured.measured_segments = telemetry["measured_segments"]
     measured.truncated = telemetry["truncated"]
     return measured
