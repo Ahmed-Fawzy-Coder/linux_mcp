@@ -14,6 +14,7 @@ Linux MCP runs on your machine and exposes one compact MCP gateway, `workspace`.
 - Bounded searches: 50 results by default and 200 maximum.
 - Bounded command and job output: latest 100 lines and 12,000 characters by default.
 - Parallel command execution and background jobs with bounded log retrieval.
+- Optional reversible Ultimate Context snapshots with deterministic action-aware reduction, bounded retrieval, TTL/size eviction, and explicit source-completeness reporting.
 - systemd user service plus socket activation on `127.0.0.1:8000`.
 - Boot-time startup with systemd user lingering.
 - Live estimated savings at `/metrics`, calculated from calls made since the last telemetry reset with a bounded per-operation baseline.
@@ -36,6 +37,9 @@ Linux MCP runs on your machine and exposes one compact MCP gateway, `workspace`.
 | `get_job_output` | Read a bounded recent log section |
 | `wait_jobs` | Wait for one or more jobs |
 | `stop_job` | Stop a background job |
+| `get_context_result` | Retrieve a bounded section of an opaque stored context snapshot |
+
+Pass `_context` inside an action's `arguments` to opt in. `mode: "auto"` atomically stores the complete bounded action response, then reduces only known large fields. `mode: "store"` stores without reducing, `mode: "full"` adds validation metadata without storing, and `mode: "off"` preserves the legacy payload. `intent` guides conservative prioritization and `if_none_match` accepts the prior SHA-256 ETag. `snapshot_complete` describes the stored bounded response; `source_complete: false` means the underlying action had already truncated its source and that omitted source was never recoverable from the snapshot.
 
 ## Requirements
 
@@ -100,6 +104,12 @@ RATE_LIMIT_PER_MINUTE=1000
 DEFAULT_COMMAND_TIMEOUT_S=120
 MAX_COMMAND_TIMEOUT_S=600
 MAX_OUTPUT_CHARS=12000
+CONTEXT_RESULTS_DIR=~/.linux-mcp/context-results
+CONTEXT_RESULT_TTL_S=3600
+CONTEXT_RESULT_MAX_ENTRIES=128
+CONTEXT_RESULT_MAX_BYTES=67108864
+CONTEXT_RESULT_MAX_RETRIEVAL_CHARS=12000
+CONTEXT_RESULT_REDUCE_CHARS=4000
 ```
 
 Restart the service after changing `.env`:

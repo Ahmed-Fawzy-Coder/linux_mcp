@@ -53,6 +53,12 @@ class Settings:
     max_command_timeout_s: int
     max_output_chars: int
     workdir: Path
+    context_results_dir: Path
+    context_result_ttl_s: int
+    context_result_max_entries: int
+    context_result_max_bytes: int
+    context_result_max_retrieval_chars: int
+    context_result_reduce_chars: int
     http_allowlist: List[str]
     http_https_only: bool
     http_max_response_bytes: int
@@ -72,6 +78,12 @@ def load_settings() -> Settings:
     workdir = Path(workdir_env).expanduser().resolve() if workdir_env else HOME_DIR
     workdir.mkdir(parents=True, exist_ok=True)
 
+    context_dir_env = os.getenv("CONTEXT_RESULTS_DIR", "").strip()
+    context_results_dir = (
+        Path(context_dir_env).expanduser().resolve()
+        if context_dir_env else (HOME_DIR / ".linux-mcp" / "context-results").resolve()
+    )
+
     download_dir = Path(os.getenv("DOWNLOAD_DIR", "~/Downloads")).expanduser().resolve()
     download_dir.mkdir(parents=True, exist_ok=True)
 
@@ -84,6 +96,12 @@ def load_settings() -> Settings:
         max_command_timeout_s=_int("MAX_COMMAND_TIMEOUT_S", 600),
         max_output_chars=_int("MAX_OUTPUT_CHARS", 12000),
         workdir=workdir,
+        context_results_dir=context_results_dir,
+        context_result_ttl_s=max(1, _int("CONTEXT_RESULT_TTL_S", 3600)),
+        context_result_max_entries=max(1, _int("CONTEXT_RESULT_MAX_ENTRIES", 128)),
+        context_result_max_bytes=max(1, _int("CONTEXT_RESULT_MAX_BYTES", 64 * 1024 * 1024)),
+        context_result_max_retrieval_chars=max(1, _int("CONTEXT_RESULT_MAX_RETRIEVAL_CHARS", 12000)),
+        context_result_reduce_chars=max(512, _int("CONTEXT_RESULT_REDUCE_CHARS", 4000)),
         http_allowlist=_strlist("HTTP_ALLOWLIST", ["*"]),
         http_https_only=_bool("HTTP_HTTPS_ONLY", False),
         http_max_response_bytes=_int("HTTP_MAX_RESPONSE_BYTES", 5_000_000),

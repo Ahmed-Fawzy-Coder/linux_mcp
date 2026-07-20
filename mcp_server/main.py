@@ -67,6 +67,14 @@ def _log(audit_logger, tool: str, fn):
                 "measured_segments": result.measured_segments,
                 "truncated": result.truncated,
             })
+            for field in (
+                "context_stored_chars", "context_original_chars", "context_reduced_chars",
+                "context_returned_chars", "context_saved_chars", "context_retrieval_chars",
+                "context_stored", "context_reduced", "context_retrieval",
+                "context_not_modified", "context_source_incomplete",
+            ):
+                value = getattr(result, field, 0)
+                event[field] = max(0, int(value))
         audit_logger.info(json.dumps(event))
 
 
@@ -77,7 +85,12 @@ def create_app():
 
     mcp = FastMCP(
         name="linux-mcp",
-        instructions="Bounded local Linux workspace operations with compact output.",
+        instructions=(
+            "Bounded local Linux workspace operations with compact output. Workspace actions may opt in "
+            "to reversible Ultimate Context via arguments._context; retrieve stored snapshots with "
+            "get_context_result. Stored snapshots never imply recovery of source content already truncated "
+            "by an underlying action."
+        ),
         streamable_http_path="/mcp",
         stateless_http=True,
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
@@ -113,7 +126,11 @@ def create_app():
             "run_commands_parallel(commands,cwd,timeout_s,return_output); "
             "start_background_job(command,cwd,env,timeout_s,no_output_timeout_s); "
             "get_job_status(job_id); get_job_output(job_id,tail_lines,since_offset,stream); "
-            "wait_jobs(job_ids,timeout_s,return_output); stop_job(job_id,signal). "
+            "wait_jobs(job_ids,timeout_s,return_output); stop_job(job_id,signal); "
+            "get_context_result(context_id,offset,length,if_none_match). "
+            "Optional arguments._context accepts mode (off|auto|store|full), intent, and if_none_match. "
+            "auto stores the complete bounded action snapshot before deterministic reduction; "
+            "snapshot_complete and source_complete are reported separately. "
             "Bounded defaults: read 160 lines, search 50 results, command/job output 100 lines and 12000 chars."
         ),
     )
