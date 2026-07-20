@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shutil
 import time
 from pathlib import Path
@@ -13,6 +14,7 @@ MAX_READ_CHARS = 12_000
 DEFAULT_READ_LINES = 160
 MAX_READ_LINES = 500
 MAX_MULTI_FILES = 8
+MAX_STABLE_READ_ATTEMPTS = 3
 
 
 # ── Write ────────────────────────────────────────────────────────────────────
@@ -41,12 +43,67 @@ def write_files_batch(settings: Settings, files: List[Dict[str, str]], atomic: b
 
 # ── Read ─────────────────────────────────────────────────────────────────────
 
+def _stat_identity(value: os.stat_result) -> tuple[int, int, int, int, int]:
+    """Return the fields that identify one observable file generation."""
+    return (
+        value.st_dev,
+        value.st_ino,
+        value.st_size,
+        value.st_mtime_ns,
+        value.st_ctime_ns,
+    )
+
+
+def _open_read_fd(target: Path) -> int:
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+    return os.open(target, flags)
+
+
+def _read_stable_text(target: Path) -> tuple[str, str]:
+    """Read the generation currently named by target, retrying across replaces.
+
+    Opening a path and then reading its descriptor is normally consistent, but an
+    atomic rename between those operations leaves the descriptor attached to the
+    old inode. Comparing the descriptor identity with the path after the read
+    prevents that old generation from escaping as a fresh read result.
+    """
+    for _ in range(MAX_STABLE_READ_ATTEMPTS):
+        try:
+            fd = _open_read_fd(target)
+        except FileNotFoundError:
+            continue
+        try:
+            before = os.fstat(fd)
+            with os.fdopen(fd, "rb", closefd=True) as source:
+                fd = -1
+                raw = source.read()
+        finally:
+            if fd >= 0:
+                os.close(fd)
+
+        try:
+            after = target.stat()
+        except FileNotFoundError:
+            continue
+        identity = _stat_identity(before)
+        if identity != _stat_identity(after) or len(raw) != before.st_size:
+            continue
+
+        generation = ":".join(str(part) for part in identity)
+        return raw.decode("utf-8", errors="replace"), generation
+
+    raise HTTPException(
+        status.HTTP_409_CONFLICT,
+        "File changed repeatedly while it was being read; retry the read.",
+    )
+
+
 def read_file(settings: Settings, path: str, offset: int = 0,
               length: Optional[int] = DEFAULT_READ_LINES) -> Dict[str, Any]:
     target = resolve_path(path)
     if not target.exists() or not target.is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"File not found: {path}")
-    content = target.read_text(encoding="utf-8", errors="replace")
+    content, source_generation = _read_stable_text(target)
     lines = content.splitlines(keepends=True)
     start = max(0, int(offset or 0))
     requested = DEFAULT_READ_LINES if length is None else max(1, min(int(length), MAX_READ_LINES))
@@ -64,6 +121,7 @@ def read_file(settings: Settings, path: str, offset: int = 0,
         "_telemetry": {
             "source_chars": len(content),
             "returned_content_chars": len(bounded),
+            "source_generation": source_generation,
         },
     }
 
