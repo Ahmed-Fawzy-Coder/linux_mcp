@@ -174,6 +174,12 @@ def workspace(settings: Settings, action: str,
     }
     operation = (action or "").strip()
     supplied_arguments = dict(arguments or {})
+    if operation == "run_command" and "max_output_lines" in supplied_arguments:
+        # Codex agents commonly use this intuitive alias even though the compact
+        # workspace schema calls the bound `tail_lines`. Accept it so a harmless
+        # naming mismatch does not cost a failed tool round trip.
+        max_output_lines = supplied_arguments.pop("max_output_lines")
+        supplied_arguments.setdefault("tail_lines", max_output_lines)
     if operation == "get_context_result":
         try:
             return _retrieval(settings, supplied_arguments)

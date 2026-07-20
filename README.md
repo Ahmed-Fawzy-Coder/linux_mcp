@@ -39,6 +39,8 @@ Linux MCP runs on your machine and exposes one compact MCP gateway, `workspace`.
 | `stop_job` | Stop a background job |
 | `get_context_result` | Retrieve a bounded section of an opaque stored context snapshot |
 
+`run_command` uses `tail_lines` as its canonical line bound. The compact gateway also accepts the common `max_output_lines` alias and maps it to `tail_lines`, so a harmless naming variation does not create a failed tool round trip. If both are supplied, `tail_lines` wins.
+
 Pass `_context` inside an action's `arguments` to opt in. `mode: "auto"` atomically stores the complete bounded action response, then reduces only known large fields. `mode: "store"` stores without reducing, `mode: "full"` adds validation metadata without storing, and `mode: "off"` preserves the legacy payload. `intent` guides conservative prioritization and `if_none_match` accepts the prior SHA-256 ETag. `snapshot_complete` describes the stored bounded response; `source_complete: false` means the underlying action had already truncated its source and that omitted source was never recoverable from the snapshot.
 
 ## Requirements
@@ -85,6 +87,102 @@ The installer:
 4. Installs and enables `linux-mcp.socket` and `linux-mcp.service`.
 5. Enables user lingering when allowed, so the service can start at boot before an interactive login.
 6. Verifies `http://127.0.0.1:8000/health`.
+
+## Complete startup and automatic-boot guide
+
+There are three separate pieces to understand:
+
+| Piece | What it does | When it runs |
+| --- | --- | --- |
+| `linux-mcp.socket` | Reserves `127.0.0.1:8000` and can activate the server on demand | At boot when lingering is enabled, otherwise at login |
+| `linux-mcp.service` | Runs the Python MCP server | Immediately after installation and on future boots/logins |
+| Codex MCP configuration | Tells every Codex project to connect to the local server | Whenever Codex starts a task |
+
+The installation script configures the first two pieces. The sections below configure Codex itself.
+
+### One-time automatic-start setup
+
+Run this from the cloned repository:
+
+```bash
+./scripts/install-systemd-user.sh
+```
+
+The installer normally enables lingering automatically. Verify it explicitly:
+
+```bash
+loginctl show-user "$USER" -p Linger
+```
+
+The expected value is `Linger=yes`. If it is `no`, enable it and check again:
+
+```bash
+loginctl enable-linger "$USER"
+# If your distribution requires administrator authorization:
+sudo loginctl enable-linger "$USER"
+loginctl show-user "$USER" -p Linger
+```
+
+Why lingering matters: a systemd user service normally starts only after that user logs in. Lingering starts the user's systemd manager during computer boot, so Linux MCP is ready before Codex Desktop is opened and even before an interactive login.
+
+Enable and start both units again if you ever changed their state manually:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now linux-mcp.socket linux-mcp.service
+```
+
+No root-owned system service is required. The installed files live under:
+
+```text
+~/.config/systemd/user/linux-mcp.socket
+~/.config/systemd/user/linux-mcp.service
+```
+
+The service contains an absolute repository and virtual-environment path. Do not move or delete the cloned repository while the service is installed. If you move it, rerun `./scripts/install-systemd-user.sh` from the new location.
+
+### What happens after every reboot
+
+1. systemd starts the user's service manager because `Linger=yes`.
+2. `linux-mcp.socket` listens only on `127.0.0.1:8000`.
+3. `linux-mcp.service` starts the server; socket activation also recovers it on demand.
+4. Codex reads the global `[mcp_servers.linux_mcp]` configuration.
+5. Codex waits for the configured startup grace period and loads only the compact `workspace` tool.
+
+You do **not** need to run `start-linux-mcp` or start a terminal after reboot when both units are enabled. A manual helper can still be used for diagnostics, but systemd is the source of truth.
+
+### Prove automatic startup with a reboot test
+
+Before rebooting:
+
+```bash
+systemctl --user is-enabled linux-mcp.socket linux-mcp.service
+loginctl show-user "$USER" -p Linger
+```
+
+Expected output is two `enabled` lines and `Linger=yes`. Reboot, do not run a manual start command, and then check:
+
+```bash
+systemctl --user is-active linux-mcp.socket linux-mcp.service
+curl --fail --silent --show-error http://127.0.0.1:8000/health
+```
+
+Expected output is two `active` lines followed by a JSON response containing `"ok": true`.
+
+### Daily service controls
+
+| Goal | Command |
+| --- | --- |
+| Show full status | `systemctl --user status linux-mcp.socket linux-mcp.service` |
+| Start now | `systemctl --user start linux-mcp.socket linux-mcp.service` |
+| Restart after config/code changes | `systemctl --user restart linux-mcp.service` |
+| Stop the server temporarily | `systemctl --user stop linux-mcp.service` |
+| Disable future automatic startup | `systemctl --user disable --now linux-mcp.service linux-mcp.socket` |
+| Re-enable automatic startup | `systemctl --user enable --now linux-mcp.socket linux-mcp.service` |
+| Read recent logs | `journalctl --user -u linux-mcp.service -n 100 --no-pager` |
+| Follow live logs | `journalctl --user -u linux-mcp.service -f` |
+
+Stopping only the service does not necessarily keep it stopped: a request to port `8000` can activate it again through the enabled socket. Stop the socket as well when you need a complete temporary shutdown.
 
 ## Configure the local secret
 
@@ -217,6 +315,48 @@ Use linux_mcp to search this project for README, then read only the first 20 lin
 
 The tool call should be `mcp__linux_mcp__workspace` with `action: "search_files"` or `action: "read_file"`.
 
+### Verify the complete Codex integration
+
+Use a new Codex task so it reloads the global MCP configuration. A reliable test prompt is:
+
+```text
+Use mcp__linux_mcp__workspace only. Search this project for README files, then read
+the first 20 lines of the most relevant README. Do not use native shell or file tools.
+```
+
+Confirm all of the following:
+
+1. The first local operation is `mcp__linux_mcp__workspace`.
+2. The request uses the active project's absolute path, not the `linux_mcp` repository path.
+3. The model calls `search_files` before a bounded `read_file`.
+4. Only the requested lines are returned.
+5. `curl 'http://127.0.0.1:8000/metrics?range=all'` shows the new measured calls.
+
+If Codex still selects native tools, the server may be healthy while the global instructions are missing. Recheck both `~/.codex/config.toml` and `~/.codex/AGENTS.md`, then completely quit and reopen Codex Desktop.
+
+For a stronger test, do not mention Linux MCP in the prompt. Start a fresh task and ask only:
+
+```text
+In this project, find the most relevant README, read only its first five lines,
+and return the first heading. Do not modify any file.
+```
+
+With the global configuration from this guide, the first local operation should still be `mcp__linux_mcp__workspace`, followed by bounded `search_files` and `read_file` actions. This proves that selection comes from the global setup rather than from prompt-specific wording.
+
+Permanent coverage for new tasks relies on all three layers being present:
+
+1. `[mcp_servers.linux_mcp]` is globally enabled and `required = true` in `~/.codex/config.toml`.
+2. The global rules in `~/.codex/AGENTS.md` require Linux MCP for local project operations.
+3. The global `PreToolUse` guard in `~/.codex/hooks.json` blocks accidental native file/shell fallbacks while Linux MCP is available.
+
+Validate the guard after installation or update:
+
+```bash
+.venv/bin/python -m unittest -q tests.test_codex_hook_guard
+```
+
+Completely restart Codex Desktop after changing the MCP configuration, global rules, or hook. Already-open tasks may retain their previous tool registry or instructions. Linux MCP is intended for local files, search, commands, tests, jobs, and logs; browser, GitHub, image, and other specialized tools continue to use their own integrations.
+
 ## How live telemetry works
 
 Linux MCP records only metadata, never file contents or command output, in `mcp_server/audit.log`.
@@ -314,6 +454,15 @@ git pull --ff-only
 systemctl --user restart linux-mcp.service
 ```
 
+If dependencies, the repository path, or the unit template changed, use the full installer instead:
+
+```bash
+git pull --ff-only
+./scripts/install-systemd-user.sh
+```
+
+The installer is safe to rerun: it refreshes the editable environment, rewrites the user units with the current absolute path, enables them, restarts the service, and performs a health check. It preserves an existing `mcp_server/.env`.
+
 ## Uninstalling the service
 
 ```bash
@@ -353,6 +502,31 @@ The bearer token in `~/.codex/config.toml` does not match `MCP_API_KEY`, or the 
 loginctl enable-linger "$USER"
 systemctl --user enable linux-mcp.socket linux-mcp.service
 ```
+
+Then inspect the boot and user-service state:
+
+```bash
+loginctl show-user "$USER" -p Linger -p State
+systemctl --user list-unit-files 'linux-mcp.*'
+journalctl --user -u linux-mcp.service -b -n 100 --no-pager
+```
+
+If the current distribution does not provide a systemd user manager, use the manual startup command under a process supervisor supported by that distribution.
+
+### `systemctl --user` cannot connect to the bus
+
+This usually happens in a minimal SSH shell, container, or environment without a user systemd session. On a normal Linux host, log in once as the target desktop user and retry. Over SSH, confirm `/run/user/$(id -u)` exists and that `loginctl show-user "$USER"` reports a user manager. Linux MCP's systemd installer is not intended to run inside Docker.
+
+### The repository or Python location changed
+
+The service uses absolute paths. From the repository's new location, rerun:
+
+```bash
+./scripts/install-systemd-user.sh
+systemctl --user cat linux-mcp.service
+```
+
+Confirm `WorkingDirectory` and `ExecStart` point to the new clone.
 
 ### Large output still reaches the model
 
