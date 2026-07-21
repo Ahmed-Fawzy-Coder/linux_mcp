@@ -577,7 +577,7 @@ def create_app():
         return JSONResponse(summarize_audit_metrics(request.query_params.get("range", "30d")))
 
     app.router.routes.append(Route("/health", health, methods=["GET"]))
-  app.router.routes.append(Route("/metrics", metrics, methods=["GET"]))
+    app.router.routes.append(Route("/metrics", metrics, methods=["GET"]))
 
     async def reset_metrics(_: Request) -> Response:
         audit_log = BASE_DIR / "audit.log"
