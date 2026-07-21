@@ -13,6 +13,21 @@ AUDIT_LOG = BASE_DIR / "audit.log"
 TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
+def reset_audit_metrics(now: Optional[datetime] = None) -> Dict[str, Any]:
+    if not AUDIT_LOG.exists():
+        return {"ok": True, "archived": False}
+
+    current = now or datetime.now()
+    archive = AUDIT_LOG.with_name(f"audit-{current.strftime('%Y%m%d-%H%M%S-%f')}.log")
+    archive.write_bytes(AUDIT_LOG.read_bytes())
+    archive.chmod(0o600)
+    # Truncate the existing inode so active logging handlers continue in the fresh file.
+    with AUDIT_LOG.open("w", encoding="utf-8"):
+        pass
+    AUDIT_LOG.chmod(0o600)
+    return {"ok": True, "archived": True, "archive": archive.name}
+
+
 def _since_for_range(value: str, now: datetime) -> Optional[datetime]:
     if value == "7d":
         return now - timedelta(days=7)

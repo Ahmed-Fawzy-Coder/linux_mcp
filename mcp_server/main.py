@@ -606,12 +606,8 @@ def create_app():
     app.router.routes.append(Route("/metrics", metrics, methods=["GET"]))
 
     async def reset_metrics(_: Request) -> Response:
-        audit_log = BASE_DIR / "audit.log"
-        if audit_log.exists():
-            from datetime import datetime
-            archive = BASE_DIR / f"audit-{datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
-            audit_log.rename(archive)
-        return JSONResponse({"ok": True, "message": "Audit log archived; fresh counting started."})
+        from .telemetry import reset_audit_metrics
+        return JSONResponse(reset_audit_metrics())
 
     app.router.routes.append(Route("/metrics/reset", reset_metrics, methods=["POST"]))
     # REST API — FastAPI sub-app mounted at /api

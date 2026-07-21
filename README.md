@@ -382,15 +382,16 @@ Endpoints:
 GET /metrics?range=7d
 GET /metrics?range=30d
 GET /metrics?range=all
+POST /metrics/reset
 ```
 
 To reset only Linux MCP telemetry:
 
 ```bash
-systemctl --user stop linux-mcp.service
-rm -- mcp_server/audit.log
-systemctl --user start linux-mcp.service
+curl -X POST 'http://127.0.0.1:8000/metrics/reset'
 ```
+
+The reset copies the current audit log to a timestamped private archive and truncates the active file in place, so an already-open logging handler continues writing to the fresh counter safely.
 
 ## Manual startup without systemd
 

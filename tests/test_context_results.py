@@ -4,6 +4,7 @@ import hashlib
 import json
 import stat
 import tempfile
+from datetime import datetime
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -230,6 +231,18 @@ class WorkspaceContextTests(unittest.TestCase):
             self.assertEqual(result["contextReturnedChars"], 500)
             self.assertEqual(result["contextSavedChars"], 4_500)
             self.assertEqual(result["contextRetrievalChars"], 100)
+
+    def test_reset_audit_metrics_archives_and_truncates_active_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            audit = Path(tmp) / "audit.log"
+            audit.write_text("sensitive metrics\n", encoding="utf-8")
+            with patch.object(telemetry, "AUDIT_LOG", audit):
+                result = telemetry.reset_audit_metrics(datetime(2026, 7, 22, 1, 2, 3))
+            self.assertTrue(result["ok"])
+            self.assertTrue(result["archived"])
+            self.assertEqual(audit.read_text(encoding="utf-8"), "")
+            archive = audit.with_name(result["archive"])
+            self.assertEqual(archive.read_text(encoding="utf-8"), "sensitive metrics\n")
 
     def test_audit_event_contains_only_numeric_context_metadata(self):
         class Logger:
