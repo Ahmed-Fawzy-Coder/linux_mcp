@@ -59,6 +59,9 @@ class Settings:
     context_result_max_bytes: int
     context_result_max_retrieval_chars: int
     context_result_reduce_chars: int
+    semantic_cache_enabled: bool
+    semantic_cache_ttl_s: int
+    adaptive_compression_mode: str
     http_allowlist: List[str]
     http_https_only: bool
     http_max_response_bytes: int
@@ -102,6 +105,9 @@ def load_settings() -> Settings:
         context_result_max_bytes=max(1, _int("CONTEXT_RESULT_MAX_BYTES", 64 * 1024 * 1024)),
         context_result_max_retrieval_chars=max(1, _int("CONTEXT_RESULT_MAX_RETRIEVAL_CHARS", 12000)),
         context_result_reduce_chars=max(512, _int("CONTEXT_RESULT_REDUCE_CHARS", 4000)),
+        semantic_cache_enabled=_bool("SEMANTIC_CACHE_ENABLED", True),
+        semantic_cache_ttl_s=max(1, _int("SEMANTIC_CACHE_TTL_S", 3600)),
+        adaptive_compression_mode=os.getenv("ADAPTIVE_COMPRESSION_MODE", "shadow").strip().lower() if os.getenv("ADAPTIVE_COMPRESSION_MODE", "shadow").strip().lower() in {"shadow", "active"} else "shadow",
         http_allowlist=_strlist("HTTP_ALLOWLIST", ["*"]),
         http_https_only=_bool("HTTP_HTTPS_ONLY", False),
         http_max_response_bytes=_int("HTTP_MAX_RESPONSE_BYTES", 5_000_000),

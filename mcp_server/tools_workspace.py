@@ -29,6 +29,8 @@ from .tools_jobs import (
 from .tools_search import search_files
 from .tools_terminal import run_command
 from .project_ledger import Ledger
+from .semantic_cache import SemanticCache
+from .adaptive_compression import decide
 
 
 ESTIMATED_NATIVE_OUTPUT_CAP_CHARS = 40_000
@@ -239,6 +241,7 @@ def workspace(settings: Settings, action: str,
     operation = (action or "").strip()
     supplied_arguments = dict(arguments or {})
     ledger = Ledger(str(supplied_arguments.get("project_root", settings.workdir)))
+    semantic = SemanticCache(ledger.db, ttl_s=int(getattr(settings, "semantic_cache_ttl_s", 3600)), enabled=bool(getattr(settings, "semantic_cache_enabled", True)))
     task_id = str(supplied_arguments.pop("task_id", "default")); conversation_id = str(supplied_arguments.pop("conversation_id", "default"))
     project_root = supplied_arguments.pop("project_root", str(settings.workdir))
     if action == "begin_task":
@@ -254,15 +257,21 @@ def workspace(settings: Settings, action: str,
         ledger.task(task_id, conversation_id, str(supplied_arguments.get("goal", "")), "completed"); return json.dumps({"ok":True})
     policy = "read-only"
     cache_key = None
-    if action in {"read_file", "read_multiple_files", "search_files", "get_job_status", "get_job_output"}:
+    cache_deps = {}
+    cacheable_request = supplied_arguments.get("_context") in (None, False)
+    if cacheable_request and action in {"read_file", "read_multiple_files", "search_files", "get_job_status", "get_job_output"}:
         deps = {}
         for p in [supplied_arguments.get("path"), *(supplied_arguments.get("paths", []) if isinstance(supplied_arguments.get("paths"), list) else [])]:
             try: deps[str(p)] = hashlib.sha256(Path(str(p)).read_bytes()).hexdigest()
             except Exception: pass
+        cache_deps = deps
         cache_key = ledger.cache_key(action, supplied_arguments, deps, policy)
         if cache_key:
             cached = ledger.cache_get(cache_key)
             if cached is not None: return json.dumps({**cached,"cache":"exact-hit"},ensure_ascii=False)
+        semantic_candidate = semantic.lookup(ledger.project_id, action, canonical_json(supplied_arguments), cache_deps, ledger.tool_version)
+        if semantic_candidate is not None:
+            return json.dumps(semantic_candidate, ensure_ascii=False)
     if operation == "read_file":
         supplied_arguments = _normalize_read_file_alias(supplied_arguments)
     if operation == "run_command" and "max_output_lines" in supplied_arguments:
@@ -295,7 +304,9 @@ def workspace(settings: Settings, action: str,
         ) from exc
     clean_result, telemetry = _strip_telemetry(result)
     ledger.fact(task_id, conversation_id, action, {"arguments": supplied_arguments, "result": clean_result})
-    if cache_key: ledger.cache_put(cache_key, action, clean_result, {}, policy)
+    if cache_key and cacheable_request:
+        ledger.cache_put(cache_key, action, clean_result, {}, policy)
+        semantic.put(ledger.project_id, action, canonical_json(supplied_arguments), cache_deps, clean_result, ledger.tool_version)
     if context["mode"] == "off":
         serialized = json.dumps(clean_result, ensure_ascii=False, separators=(",", ":"))
         return _measured_result(serialized, telemetry)
@@ -328,11 +339,14 @@ def workspace(settings: Settings, action: str,
     if context["mode"] in {"auto", "store"}:
         stored = store_context_result(settings, snapshot, source_complete=source_complete)
     if context["mode"] == "auto":
-        target_chars = max(512, int(getattr(settings, "context_result_reduce_chars", 4_000)))
+        content_class = "search" if operation == "search_files" else ("logs" if operation in {"run_command", "get_job_output"} else "json")
+        active = str(getattr(settings, "adaptive_compression_mode", "active")) == "active"
+        compression = decide(content_class=content_class, source_complete=source_complete, size=len(snapshot), shadow=not active, target_bytes=int(getattr(settings, "context_result_reduce_chars", 4_000)))
+        target_chars = max(512, compression.target_bytes)
         candidate = reduce_context_result(
             operation, clean_result, intent=context["intent"], target_chars=target_chars,
         )
-        was_reduced = len(canonical_json(candidate)) < len(snapshot)
+        was_reduced = active and compression.mode == "compact" and len(canonical_json(candidate)) < len(snapshot)
         if was_reduced:
             output = candidate
     reduced_body_chars = len(canonical_json(output)) if was_reduced else 0
