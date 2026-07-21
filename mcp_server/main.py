@@ -20,6 +20,7 @@ from .tools_jobs import (
     start_background_job, get_job_status, get_job_output,
     stop_job, list_jobs, wait_jobs, run_commands_parallel,
 )
+from .persistent_scheduler import PersistentScheduler
 from .tools_files import (
     write_file, write_files_batch, read_file, read_multiple_files,
     edit_file, move_file, copy_file, delete_path,
@@ -108,6 +109,15 @@ def create_app():
     settings = load_settings()
     limiter = RateLimiter(settings.rate_limit_per_minute)
     audit_logger = setup_audit_logger()
+    def _run_scheduled_job(job):
+        started = start_background_job(settings, job["command"], cwd=job.get("cwd"),
+                                       env=json.loads(job.get("env") or "{}"))
+        return wait_jobs(settings, [started["job_id"]], return_output=True)
+
+    scheduler = PersistentScheduler(BASE_DIR / ".linux-mcp" / "scheduler.sqlite3",
+                                    _run_scheduled_job,
+                                    max_log_chars=settings.max_output_chars)
+    scheduler.start()
 
     mcp = FastMCP(
         name="linux-mcp",
@@ -229,6 +239,22 @@ def create_app():
         return _log(audit_logger, "run_commands_parallel",
                     lambda: run_commands_parallel(settings, commands=commands, cwd=cwd,
                                                   timeout_s=timeout_s, return_output=return_output))
+
+    @mcp.tool(name="schedule_job",
+              description="Persist a background job using SQLite. Supports one-shot run_at or fixed interval; confirmation is required for external work.")
+    def _schedule_job(command: str, run_at: Optional[float] = None, interval_s: Optional[float] = None,
+                      cwd: Optional[str] = None, env: Optional[Dict[str, str]] = None,
+                      max_retries: int = 0, confirmed: bool = False) -> Dict[str, Any]:
+        return _log(audit_logger, "schedule_job", lambda: scheduler.schedule(
+            command, run_at, interval_s, cwd, env, max_retries, confirmed))
+
+    @mcp.tool(name="cancel_scheduled_job", description="Cancel a queued or running persistent job.")
+    def _cancel_scheduled_job(job_id: str) -> Dict[str, Any]:
+        return _log(audit_logger, "cancel_scheduled_job", lambda: scheduler.cancel(job_id))
+
+    @mcp.tool(name="list_scheduled_jobs", description="List persistent scheduler jobs with bounded metadata and output.")
+    def _list_scheduled_jobs(status_filter: Optional[str] = None) -> Dict[str, Any]:
+        return _log(audit_logger, "list_scheduled_jobs", lambda: {"ok": True, "jobs": scheduler.list(status_filter)})
 
     # ── File tools ──────────────────────────────────────────────────────────
     @mcp.tool(name="write_file",
