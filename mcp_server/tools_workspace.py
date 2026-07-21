@@ -51,6 +51,10 @@ class WorkspaceResult(str):
     context_retrieval: int
     context_not_modified: int
     context_source_incomplete: int
+    model_requested_retrievals: int
+    automatic_retrievals: int
+    retrieval_no_progress: int
+    answers_with_incomplete_source: int
 
 
 def _strip_telemetry(value: Any) -> tuple[Any, Dict[str, Any]]:
@@ -148,6 +152,10 @@ def _retrieval(settings: Settings, arguments: Dict[str, Any]) -> WorkspaceResult
         context_retrieval=1,
         context_not_modified=int(result.get("not_modified") is True),
         context_source_incomplete=int(result.get("source_complete") is False),
+        model_requested_retrievals=1,
+        automatic_retrievals=0,
+        retrieval_no_progress=int(result.get("not_modified") is True or result.get("has_more") is False),
+        answers_with_incomplete_source=int(result.get("source_complete") is False),
     )
 
 
@@ -306,6 +314,16 @@ def workspace(settings: Settings, action: str,
         "snapshot_complete": True,
         "source_complete": source_complete,
         "reduced": was_reduced,
+        "manifest": {
+            "handle": stored["id"] if stored is not None else None,
+            "etag": digest,
+            "sha256": digest,
+            "source_complete": source_complete,
+            "omitted": ["full_output", "unbounded_nested_values"],
+            "suggested_offset": 0,
+            "suggested_length": max(1, int(getattr(settings, "context_result_max_retrieval_chars", 12_000))),
+            "reason": "source_incomplete_or_truncated" if not source_complete else "details_available_on_demand",
+        },
     }
     if stored is not None:
         metadata.update({
