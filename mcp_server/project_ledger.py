@@ -36,7 +36,12 @@ class Ledger:
     def decision(self, task_id: str, conversation_id: str, decision: str, reason: str):
         with sqlite3.connect(self.db) as c: c.execute("INSERT INTO decisions(project_id,task_id,conversation_id,decision,reason,created) VALUES(?,?,?,?,?,?)",(self.project_id,task_id,conversation_id,_redact(decision),_redact(reason),time.time()))
     def fact(self, task_id: str, conversation_id: str, kind: str, payload: Any):
-        raw=_redact(json.dumps(payload,ensure_ascii=False,sort_keys=True,default=str)); fp=hashlib.sha256(raw.encode()).hexdigest()
+        def metadata(v):
+            if isinstance(v, dict):
+                return {k: (metadata(x) if k not in {"content", "stdout", "stderr", "command", "commands"} else {"sha256": hashlib.sha256(str(x).encode()).hexdigest(), "chars": len(str(x))}) for k,x in v.items()}
+            if isinstance(v, list): return [metadata(x) for x in v]
+            return v
+        raw=_redact(json.dumps(metadata(payload),ensure_ascii=False,sort_keys=True,default=str)); fp=hashlib.sha256(raw.encode()).hexdigest()
         with sqlite3.connect(self.db) as c: c.execute("INSERT INTO facts(project_id,task_id,conversation_id,kind,payload,fingerprint,created) VALUES(?,?,?,?,?,?,?)",(self.project_id,task_id,conversation_id,kind,raw,fp,time.time()))
     def checkpoint(self, task_id: str, conversation_id: str, snapshot: Dict[str,Any]):
         raw=_redact(json.dumps(snapshot,ensure_ascii=False,sort_keys=True,default=str))
