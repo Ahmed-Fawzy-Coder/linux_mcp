@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import secrets
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
@@ -27,6 +28,7 @@ from .tools_jobs import (
 )
 from .tools_search import search_files
 from .tools_terminal import run_command
+from .project_ledger import Ledger
 
 
 ESTIMATED_NATIVE_OUTPUT_CAP_CHARS = 40_000
@@ -236,6 +238,31 @@ def workspace(settings: Settings, action: str,
     }
     operation = (action or "").strip()
     supplied_arguments = dict(arguments or {})
+    ledger = Ledger(str(supplied_arguments.get("project_root", settings.workdir)))
+    task_id = str(supplied_arguments.pop("task_id", "default")); conversation_id = str(supplied_arguments.pop("conversation_id", "default"))
+    project_root = supplied_arguments.pop("project_root", str(settings.workdir))
+    if action == "begin_task":
+        ledger.task(task_id, conversation_id, str(supplied_arguments.get("goal", ""))); return json.dumps({"ok":True,"project_id":ledger.project_id,"task_id":task_id})
+    if action == "get_project_state":
+        try: return json.dumps(ledger.state(task_id, conversation_id),ensure_ascii=False)
+        except PermissionError as exc: raise HTTPException(status.HTTP_403_FORBIDDEN,str(exc))
+    if action == "record_decision":
+        ledger.decision(task_id, conversation_id, str(supplied_arguments["decision"]), str(supplied_arguments.get("reason", ""))); return json.dumps({"ok":True})
+    if action == "checkpoint_task":
+        ledger.checkpoint(task_id, conversation_id, dict(supplied_arguments.get("snapshot", {}))); return json.dumps({"ok":True})
+    if action == "complete_task":
+        ledger.task(task_id, conversation_id, str(supplied_arguments.get("goal", "")), "completed"); return json.dumps({"ok":True})
+    policy = "read-only"
+    cache_key = None
+    if action in {"read_file", "read_multiple_files", "search_files", "get_job_status", "get_job_output"}:
+        deps = {}
+        for p in [supplied_arguments.get("path"), *(supplied_arguments.get("paths", []) if isinstance(supplied_arguments.get("paths"), list) else [])]:
+            try: deps[str(p)] = hashlib.sha256(Path(str(p)).read_bytes()).hexdigest()
+            except Exception: pass
+        cache_key = ledger.cache_key(action, supplied_arguments, deps, policy)
+        if cache_key:
+            cached = ledger.cache_get(cache_key)
+            if cached is not None: return json.dumps({**cached,"cache":"exact-hit"},ensure_ascii=False)
     if operation == "read_file":
         supplied_arguments = _normalize_read_file_alias(supplied_arguments)
     if operation == "run_command" and "max_output_lines" in supplied_arguments:
@@ -267,6 +294,8 @@ def workspace(settings: Settings, action: str,
             f"Invalid arguments for {operation}: {exc}",
         ) from exc
     clean_result, telemetry = _strip_telemetry(result)
+    ledger.fact(task_id, conversation_id, action, {"arguments": supplied_arguments, "result": clean_result})
+    if cache_key: ledger.cache_put(cache_key, action, clean_result, {}, policy)
     if context["mode"] == "off":
         serialized = json.dumps(clean_result, ensure_ascii=False, separators=(",", ":"))
         return _measured_result(serialized, telemetry)
