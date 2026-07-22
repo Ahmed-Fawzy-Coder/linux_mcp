@@ -53,6 +53,50 @@ class TokenBoundsTests(unittest.TestCase):
             with self.assertRaises(HTTPException):
                 read_multiple_files(settings(root), paths)
 
+    def test_read_multiple_files_accepts_per_file_ranges(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first = root / "first.txt"
+            second = root / "second.txt"
+            first.write_text("a0\na1\na2\n", encoding="utf-8")
+            second.write_text("b0\nb1\nb2\n", encoding="utf-8")
+
+            result = read_multiple_files(settings(root), ranges=[
+                {"path": str(first), "offset": 1, "length": 1},
+                {"path": str(second), "offset": 2, "length": 1},
+            ])
+
+            self.assertEqual(result["files"][0]["content"], "a1\n")
+            self.assertEqual(result["files"][1]["content"], "b2\n")
+
+    def test_workspace_accepts_query_alias_for_search(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "match.txt").write_text("needle\n", encoding="utf-8")
+
+            result = json.loads(workspace(settings(root), "search_files", {
+                "query": "needle",
+                "path": str(root),
+            }))
+
+            self.assertEqual(result["match_count"], 1)
+
+    def test_workspace_missing_file_returns_bounded_suggestions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            actual = root / "moved" / "target.tsx"
+            actual.parent.mkdir()
+            actual.write_text("ok\n", encoding="utf-8")
+
+            result = json.loads(workspace(settings(root), "read_file", {
+                "path": str(root / "old" / "target.tsx"),
+                "project_root": str(root),
+            }))
+
+            self.assertFalse(result["ok"])
+            self.assertEqual(result["status"], "not_found")
+            self.assertEqual(result["suggestions"], [str(actual)])
+
     def test_search_files_respects_result_limit(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

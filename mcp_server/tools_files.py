@@ -68,18 +68,41 @@ def read_file(settings: Settings, path: str, offset: int = 0,
     }
 
 
-def read_multiple_files(settings: Settings, paths: List[str], offset: int = 0,
-                        length: Optional[int] = 120) -> Dict[str, Any]:
-    if not paths:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "paths list is empty.")
-    if len(paths) > MAX_MULTI_FILES:
+def read_multiple_files(settings: Settings, paths: Optional[List[str]] = None, offset: int = 0,
+                        length: Optional[int] = 120,
+                        ranges: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+    """Read several files, accepting either shared bounds or per-file ranges."""
+    requests: List[Dict[str, Any]] = []
+    if ranges is not None:
+        for item in ranges:
+            if not isinstance(item, dict) or not isinstance(item.get("path"), str):
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    "Each ranges item must be an object with a string path.",
+                )
+            requests.append({
+                "path": item["path"],
+                "offset": item.get("offset", offset),
+                "length": item.get("length", length),
+            })
+    else:
+        requests = [{"path": path, "offset": offset, "length": length} for path in (paths or [])]
+    if not requests:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "paths/ranges list is empty.")
+    if len(requests) > MAX_MULTI_FILES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST,
                             f"At most {MAX_MULTI_FILES} files can be read in one call.")
-    per_file_limit = max(512, settings.max_output_chars // len(paths))
+    per_file_limit = max(512, settings.max_output_chars // len(requests))
     results = []
-    for path in paths:
+    for request in requests:
+        path = request["path"]
         try:
-            result = read_file(settings, path, offset=offset, length=length)
+            result = read_file(
+                settings,
+                path,
+                offset=request["offset"],
+                length=request["length"],
+            )
             result["content"], additionally_truncated = truncate(result["content"], per_file_limit)
             result["truncated"] = bool(result["truncated"] or additionally_truncated)
             result["status"] = "ok"

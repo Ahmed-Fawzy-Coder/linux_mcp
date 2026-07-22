@@ -240,6 +240,8 @@ def workspace(settings: Settings, action: str,
     }
     operation = (action or "").strip()
     supplied_arguments = dict(arguments or {})
+    if operation == "search_files" and "query" in supplied_arguments:
+        supplied_arguments.setdefault("pattern", supplied_arguments.pop("query"))
     ledger = Ledger(str(supplied_arguments.get("project_root", settings.workdir)))
     semantic = SemanticCache(ledger.db, ttl_s=int(getattr(settings, "semantic_cache_ttl_s", 3600)), enabled=bool(getattr(settings, "semantic_cache_enabled", True)))
     task_id = str(supplied_arguments.pop("task_id", "default")); conversation_id = str(supplied_arguments.pop("conversation_id", "default"))
@@ -297,6 +299,25 @@ def workspace(settings: Settings, action: str,
     context = _context_control(supplied_arguments.pop("_context", None))
     try:
         result = handler(**supplied_arguments)
+    except HTTPException as exc:
+        if operation == "read_file" and exc.status_code == status.HTTP_404_NOT_FOUND:
+            requested = Path(str(supplied_arguments.get("path", "")))
+            root = Path(str(project_root)).expanduser().resolve()
+            suggestions = []
+            if requested.name and root.is_dir():
+                try:
+                    suggestions = [str(candidate) for candidate in root.rglob(requested.name) if candidate.is_file()][:5]
+                except OSError:
+                    suggestions = []
+            result = {
+                "ok": False,
+                "status": "not_found",
+                "path": str(requested),
+                "suggestions": suggestions,
+                "message": "File not found. Use a suggested path or search_files before retrying.",
+            }
+        else:
+            raise
     except (KeyError, TypeError) as exc:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
