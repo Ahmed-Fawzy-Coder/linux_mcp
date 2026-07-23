@@ -276,6 +276,7 @@ def get_job_output(
     tail_lines: Optional[int] = 100,
     since_offset: Optional[int] = None,
     stream: str = "both",
+    max_output_chars: Optional[int] = None,
 ) -> Dict[str, Any]:
     _read_meta(job_id)
     streams = ["stdout", "stderr"] if stream == "both" else [stream]
@@ -283,7 +284,10 @@ def get_job_output(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "stream must be stdout, stderr, or both.")
 
     result: Dict[str, Any] = {"ok": True, "job_id": job_id, "offsets": {}}
-    remaining = settings.max_output_chars
+    remaining = min(
+        settings.max_output_chars,
+        max(512, int(max_output_chars or settings.max_output_chars)),
+    )
     for name in streams:
         path = _job_dir(job_id) / f"{name}.log"
         data = path.read_bytes() if path.exists() else b""
@@ -339,6 +343,8 @@ def wait_jobs(
     job_ids: List[str],
     timeout_s: Optional[int] = None,
     return_output: bool = False,
+    tail_lines: Optional[int] = 100,
+    max_output_chars: Optional[int] = None,
 ) -> Dict[str, Any]:
     if not job_ids:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "job_ids is required.")
@@ -355,7 +361,12 @@ def wait_jobs(
 
     if return_output:
         for item in statuses:
-            output = get_job_output(settings, item["job_id"])
+            output = get_job_output(
+                settings,
+                item["job_id"],
+                tail_lines=tail_lines,
+                max_output_chars=max_output_chars,
+            )
             item["stdout"] = output.get("stdout", "")
             item["stderr"] = output.get("stderr", "")
 
@@ -368,6 +379,8 @@ def run_commands_parallel(
     cwd: Optional[str] = None,
     timeout_s: Optional[int] = None,
     return_output: bool = False,
+    tail_lines: Optional[int] = 100,
+    max_output_chars: Optional[int] = None,
 ) -> Dict[str, Any]:
     if not commands:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "commands is required.")
@@ -375,5 +388,12 @@ def run_commands_parallel(
         start_background_job(settings, command=command, cwd=cwd, timeout_s=timeout_s)
         for command in commands
     ]
-    waited = wait_jobs(settings, [j["job_id"] for j in starts], timeout_s=timeout_s, return_output=return_output)
+    waited = wait_jobs(
+        settings,
+        [j["job_id"] for j in starts],
+        timeout_s=timeout_s,
+        return_output=return_output,
+        tail_lines=tail_lines,
+        max_output_chars=max_output_chars,
+    )
     return waited

@@ -70,18 +70,55 @@ def read_file(settings: Settings, path: str, offset: int = 0,
 
 def read_multiple_files(settings: Settings, paths: Optional[List[str]] = None, offset: int = 0,
                         length: Optional[int] = 120,
-                        ranges: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+                        ranges: Optional[Any] = None) -> Dict[str, Any]:
     """Read several files, accepting either shared bounds or per-file ranges."""
     requests: List[Dict[str, Any]] = []
     if ranges is not None:
-        for item in ranges:
-            if not isinstance(item, dict) or not isinstance(item.get("path"), str):
+        if isinstance(ranges, dict):
+            if "path" in ranges or "file" in ranges:
+                range_items: List[Any] = [ranges]
+            else:
+                range_items = []
+                for range_path, bounds in ranges.items():
+                    if isinstance(bounds, dict):
+                        range_items.append({**bounds, "path": range_path})
+                    elif isinstance(bounds, (list, tuple)):
+                        range_items.append({
+                            "path": range_path,
+                            "offset": bounds[0] if len(bounds) > 0 else offset,
+                            "length": bounds[1] if len(bounds) > 1 else length,
+                        })
+                    else:
+                        range_items.append({"path": range_path, "length": bounds})
+        elif isinstance(ranges, str):
+            range_items = [ranges]
+        elif isinstance(ranges, (list, tuple)):
+            range_items = list(ranges)
+        else:
+            range_items = []
+
+        for item in range_items:
+            if isinstance(item, str):
+                item = {"path": item}
+            elif isinstance(item, (list, tuple)) and item and isinstance(item[0], str):
+                item = {
+                    "path": item[0],
+                    "offset": item[1] if len(item) > 1 else offset,
+                    "length": item[2] if len(item) > 2 else length,
+                }
+            if not isinstance(item, dict):
                 raise HTTPException(
                     status.HTTP_400_BAD_REQUEST,
-                    "Each ranges item must be an object with a string path.",
+                    "Each ranges item must identify a file path.",
+                )
+            item_path = item.get("path", item.get("file"))
+            if not isinstance(item_path, str) or not item_path:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    "Each ranges item must use path/file, a path string, or [path, offset, length].",
                 )
             requests.append({
-                "path": item["path"],
+                "path": item_path,
                 "offset": item.get("offset", offset),
                 "length": item.get("length", length),
             })

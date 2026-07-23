@@ -128,7 +128,13 @@ def _context_control(value: Any) -> Dict[str, Any]:
     if not isinstance(value, dict):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "_context must be an object, true, or false.")
     mode = str(value.get("mode", "auto")).strip().lower()
-    aliases = {"ultimate": "auto", "reduce": "auto", "preserve": "store", "none": "off"}
+    aliases = {
+        "ultimate": "auto",
+        "reduce": "auto",
+        "enforce": "auto",
+        "preserve": "store",
+        "none": "off",
+    }
     mode = aliases.get(mode, mode)
     if mode not in {"off", "auto", "store", "full"}:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "_context.mode must be off, auto, store, or full.")
@@ -216,6 +222,119 @@ def _normalize_read_file_alias(arguments: Dict[str, Any]) -> Dict[str, Any]:
     return normalized
 
 
+def _normalize_workspace_arguments(operation: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    """Accept bounded, unambiguous aliases commonly emitted by Codex clients."""
+    normalized = dict(arguments)
+
+    def alias(target: str, *sources: str) -> None:
+        for source in sources:
+            if source not in normalized:
+                continue
+            value = normalized.pop(source)
+            normalized.setdefault(target, value)
+
+    def timeout_aliases() -> None:
+        alias("timeout_s", "timeout_seconds")
+        if "timeout_ms" not in normalized:
+            return
+        milliseconds = normalized.pop("timeout_ms")
+        if "timeout_s" in normalized:
+            return
+        try:
+            normalized["timeout_s"] = max(1, (int(milliseconds) + 999) // 1000)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "timeout_ms must be an integer number of milliseconds.",
+            ) from exc
+
+    def output_line_aliases() -> None:
+        alias("tail_lines", "max_output_lines", "max_lines", "lines")
+
+    if operation == "read_file":
+        normalized = _normalize_read_file_alias(normalized)
+    elif operation == "read_multiple_files":
+        alias("paths", "files")
+    elif operation == "search_files":
+        alias("pattern", "query")
+        include_values = normalized.pop("include", None)
+        file_pattern = normalized.pop("file_pattern", None)
+        if "include_extensions" not in normalized:
+            raw_values: list[Any] = []
+            for value in (include_values, file_pattern):
+                if isinstance(value, (list, tuple, set)):
+                    raw_values.extend(value)
+                elif value is not None:
+                    raw_values.append(value)
+            extensions = []
+            for raw in raw_values:
+                candidate = str(raw).strip()
+                if not candidate:
+                    continue
+                if "*." in candidate:
+                    candidate = candidate.rsplit("*.", 1)[1]
+                candidate = candidate.lstrip(".")
+                if candidate and "/" not in candidate and "*" not in candidate:
+                    extensions.append(candidate)
+            if extensions:
+                normalized["include_extensions"] = list(dict.fromkeys(extensions))
+    elif operation == "run_command":
+        timeout_aliases()
+        output_line_aliases()
+        alias("max_output_chars", "max_chars")
+    elif operation == "run_commands_parallel":
+        timeout_aliases()
+        output_line_aliases()
+        alias("max_output_chars", "max_chars")
+        commands = normalized.get("commands")
+        if isinstance(commands, list):
+            flattened = []
+            inferred_cwds = set()
+            for item in commands:
+                if isinstance(item, str):
+                    command = item
+                elif isinstance(item, dict):
+                    command = item.get("command", item.get("cmd"))
+                    if item.get("cwd"):
+                        inferred_cwds.add(str(item["cwd"]))
+                else:
+                    command = None
+                if not isinstance(command, str) or not command.strip():
+                    raise HTTPException(
+                        status.HTTP_400_BAD_REQUEST,
+                        "Each commands item must be a command string or an object containing command/cmd.",
+                    )
+                flattened.append(command)
+            if len(inferred_cwds) > 1:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    "Per-command cwd values must be identical; split calls when commands need different directories.",
+                )
+            if inferred_cwds:
+                normalized.setdefault("cwd", inferred_cwds.pop())
+            normalized["commands"] = flattened
+    elif operation == "start_background_job":
+        timeout_aliases()
+        alias("no_output_timeout_s", "no_output_timeout_seconds")
+        for ignored in ("max_output_lines", "max_lines", "tail_lines", "max_output_chars", "max_chars"):
+            normalized.pop(ignored, None)
+    elif operation == "wait_jobs":
+        timeout_aliases()
+        output_line_aliases()
+        alias("max_output_chars", "max_chars")
+        if "job_ids" not in normalized and "job_id" in normalized:
+            normalized["job_ids"] = [normalized.pop("job_id")]
+        normalized.pop("cwd", None)
+    elif operation == "get_job_output":
+        output_line_aliases()
+        alias("max_output_chars", "max_chars")
+        normalized.pop("cwd", None)
+    elif operation == "get_job_status":
+        normalized.pop("cwd", None)
+
+    return normalized
+
+
 def workspace(settings: Settings, action: str,
               arguments: Optional[Dict[str, Any]] = None) -> str:
     """Dispatch a bounded workspace operation and return one compact JSON payload."""
@@ -239,9 +358,7 @@ def workspace(settings: Settings, action: str,
         ),
     }
     operation = (action or "").strip()
-    supplied_arguments = dict(arguments or {})
-    if operation == "search_files" and "query" in supplied_arguments:
-        supplied_arguments.setdefault("pattern", supplied_arguments.pop("query"))
+    supplied_arguments = _normalize_workspace_arguments(operation, dict(arguments or {}))
     ledger = Ledger(str(supplied_arguments.get("project_root", settings.workdir)))
     semantic = SemanticCache(ledger.db, ttl_s=int(getattr(settings, "semantic_cache_ttl_s", 3600)), enabled=bool(getattr(settings, "semantic_cache_enabled", True)))
     task_id = str(supplied_arguments.pop("task_id", "default")); conversation_id = str(supplied_arguments.pop("conversation_id", "default"))
@@ -274,14 +391,6 @@ def workspace(settings: Settings, action: str,
         semantic_candidate = semantic.lookup(ledger.project_id, action, canonical_json(supplied_arguments), cache_deps, ledger.tool_version)
         if semantic_candidate is not None:
             return json.dumps(semantic_candidate, ensure_ascii=False)
-    if operation == "read_file":
-        supplied_arguments = _normalize_read_file_alias(supplied_arguments)
-    if operation == "run_command" and "max_output_lines" in supplied_arguments:
-        # Codex agents commonly use this intuitive alias even though the compact
-        # workspace schema calls the bound `tail_lines`. Accept it so a harmless
-        # naming mismatch does not cost a failed tool round trip.
-        max_output_lines = supplied_arguments.pop("max_output_lines")
-        supplied_arguments.setdefault("tail_lines", max_output_lines)
     if operation == "get_context_result":
         try:
             return _retrieval(settings, supplied_arguments)

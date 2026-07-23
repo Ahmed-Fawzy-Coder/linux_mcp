@@ -14,7 +14,11 @@ from mcp_server.main import WORKSPACE_DESCRIPTION
 from mcp_server.tools_files import read_file, read_multiple_files
 from mcp_server.tools_search import search_files
 from mcp_server.tools_terminal import run_command
-from mcp_server.tools_workspace import workspace
+from mcp_server.tools_workspace import (
+    _context_control,
+    _normalize_workspace_arguments,
+    workspace,
+)
 
 
 def settings(workdir: Path, max_output_chars: int = 12_000):
@@ -69,6 +73,26 @@ class TokenBoundsTests(unittest.TestCase):
             self.assertEqual(result["files"][0]["content"], "a1\n")
             self.assertEqual(result["files"][1]["content"], "b2\n")
 
+    def test_read_multiple_files_accepts_common_range_shapes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first = root / "first.txt"
+            second = root / "second.txt"
+            first.write_text("a0\na1\n", encoding="utf-8")
+            second.write_text("b0\nb1\n", encoding="utf-8")
+
+            result = read_multiple_files(settings(root), ranges=[
+                [str(first), 1, 1],
+                {"file": str(second), "offset": 0, "length": 1},
+            ])
+            mapped = read_multiple_files(settings(root), ranges={
+                str(first): {"offset": 0, "length": 1},
+            })
+
+            self.assertEqual(result["files"][0]["content"], "a1\n")
+            self.assertEqual(result["files"][1]["content"], "b0\n")
+            self.assertEqual(mapped["files"][0]["content"], "a0\n")
+
     def test_workspace_accepts_query_alias_for_search(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -80,6 +104,46 @@ class TokenBoundsTests(unittest.TestCase):
             }))
 
             self.assertEqual(result["match_count"], 1)
+
+    def test_workspace_normalizes_command_and_job_aliases(self):
+        command = _normalize_workspace_arguments("run_command", {
+            "command": "printf ok",
+            "timeout_ms": 1500,
+            "max_lines": 7,
+            "max_chars": 900,
+        })
+        parallel = _normalize_workspace_arguments("run_commands_parallel", {
+            "commands": [{"cmd": "printf one", "cwd": "/tmp"}, {"command": "printf two", "cwd": "/tmp"}],
+            "timeout_seconds": 3,
+            "max_output_lines": 4,
+        })
+        waited = _normalize_workspace_arguments("wait_jobs", {
+            "job_id": "abc",
+            "timeout_ms": 250,
+            "cwd": "/ignored",
+        })
+
+        self.assertEqual(command["timeout_s"], 2)
+        self.assertEqual(command["tail_lines"], 7)
+        self.assertEqual(command["max_output_chars"], 900)
+        self.assertEqual(parallel["commands"], ["printf one", "printf two"])
+        self.assertEqual(parallel["cwd"], "/tmp")
+        self.assertEqual(parallel["timeout_s"], 3)
+        self.assertEqual(parallel["tail_lines"], 4)
+        self.assertEqual(waited["job_ids"], ["abc"])
+        self.assertEqual(waited["timeout_s"], 1)
+        self.assertNotIn("cwd", waited)
+
+    def test_workspace_normalizes_search_filters_and_enforce_context(self):
+        normalized = _normalize_workspace_arguments("search_files", {
+            "query": "needle",
+            "include": ["*.tsx", ".ts"],
+            "file_pattern": "**/*.test.ts",
+        })
+
+        self.assertEqual(normalized["pattern"], "needle")
+        self.assertEqual(normalized["include_extensions"], ["tsx", "ts", "test.ts"])
+        self.assertEqual(_context_control({"mode": "enforce"})["mode"], "auto")
 
     def test_workspace_missing_file_returns_bounded_suggestions(self):
         with tempfile.TemporaryDirectory() as tmp:

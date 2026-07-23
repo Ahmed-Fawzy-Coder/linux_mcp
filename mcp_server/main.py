@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 import json
 import time
@@ -59,12 +60,13 @@ WORKSPACE_DESCRIPTION = (
     "edit_file(path,old_string,new_string,expected_replacements); "
     "write_file(path,content); write_files_batch(files,atomic); "
     "run_command(command,cwd,timeout_s,tail_lines,max_output_chars); "
-    "run_commands_parallel(commands,cwd,timeout_s,return_output); "
+    "run_commands_parallel(commands,cwd,timeout_s,return_output,tail_lines,max_output_chars); "
     "start_background_job(command,cwd,env,timeout_s,no_output_timeout_s); "
-    "get_job_status(job_id); get_job_output(job_id,tail_lines,since_offset,stream); "
-    "wait_jobs(job_ids,timeout_s,return_output); stop_job(job_id,signal); "
+    "get_job_status(job_id); get_job_output(job_id,tail_lines,since_offset,stream,max_output_chars); "
+    "wait_jobs(job_ids,timeout_s,return_output,tail_lines,max_output_chars); stop_job(job_id,signal); "
     "get_context_result(context_id,offset,length,if_none_match). "
-    "Optional arguments._context accepts mode (off|auto|store|full), intent, and if_none_match. "
+    "Compatibility aliases include query, files, timeout_ms, timeout_seconds, max_lines, and max_chars. "
+    "Optional arguments._context accepts mode (off|auto|store|full; enforce aliases auto), intent, and if_none_match. "
     "auto stores the complete bounded action snapshot before deterministic reduction; "
     "snapshot_complete and source_complete are reported separately. "
     "Bounded defaults: read 160 lines, search 50 results, command/job output 100 lines and 12000 chars."
@@ -155,9 +157,13 @@ def create_app():
         structured_output=False,
         description=WORKSPACE_DESCRIPTION,
     )
-    def _workspace(action: str, arguments: Optional[Dict[str, Any]] = None) -> str:
-        return _log(audit_logger, f"workspace:{action}",
-                    lambda: workspace(settings, action=action, arguments=arguments))
+    async def _workspace(action: str, arguments: Optional[Dict[str, Any]] = None) -> str:
+        return await asyncio.to_thread(
+            _log,
+            audit_logger,
+            f"workspace:{action}",
+            lambda: workspace(settings, action=action, arguments=arguments),
+        )
 
     # ── Terminal tools ──────────────────────────────────────────────────────
     @mcp.tool(name="run_command",
