@@ -12,6 +12,7 @@ venv/
 .env
 audit.log
 mcp_server/jobs/
+mcp_server/.linux-mcp/
 jobs/
 *.log
 
